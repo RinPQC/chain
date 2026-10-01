@@ -6,6 +6,11 @@ resolver = "2"
 [workspace.dependencies]
 malachitebft-app-channel = { package = "arc-malachitebft-app-channel", version = "=0.8.0", git = "https://github.com/circlefin/malachite", rev = "72143f6c99a98452b587e1c392bdb80944eb2232" }
 
+malachite-core = { package = "arc-malachitebft-core-consensus", version = "=0.8.0", git = "https://github.com/circlefin/malachite", rev = "72143f6c99a98452b587e1c392bdb80944eb2232", features = ["borsh"] }
+malachite-runtime = { package = "arc-malachitebft-engine", version = "=0.8.0", git = "https://github.com/circlefin/malachite", rev = "72143f6c99a98452b587e1c392bdb80944eb2232", features = ["borsh"] }
+malachite-signing = { package = "arc-malachitebft-signing", version = "=0.8.0", git = "https://github.com/circlefin/malachite", rev = "72143f6c99a98452b587e1c392bdb80944eb2232" }
+malachite-types = { package = "arc-malachitebft-core-types", version = "=0.8.0", git = "https://github.com/circlefin/malachite", rev = "72143f6c99a98452b587e1c392bdb80944eb2232", features = ["borsh"] }
+
 [package]
 edition = "2021"
 license = "MIT"
@@ -15,10 +20,20 @@ rust-version = "1.93"
 version = "0.1.0"
 
 [dependencies]
+async-trait = "0.1"
+borsh = { version = "1", features = ["derive"] }
+bytes = "1"
+bytesize = "2"
 curve25519-dalek = "=4.1.3"
 ed25519-dalek = { version = "=2.2.0", features = ["rand_core", "zeroize"] }
+eyre = "0.6"
 hex = "0.4.3"
 libc = "0.2"
+libp2p-identity = { version = "0.2", features = ["ed25519", "peerid"] }
+malachite-core.workspace = true
+malachite-runtime.workspace = true
+malachite-signing.workspace = true
+malachite-types.workspace = true
 malachitebft-app-channel.workspace = true
 rand_core = { version = "0.6.4", features = ["getrandom"] }
 redb = "=4.3.0"
@@ -26,7 +41,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10.9"
 thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
 toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 zeroize = "1"
 
 [lints.rust]

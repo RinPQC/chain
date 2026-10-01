@@ -2,7 +2,7 @@
 
 `storage::Store` persists the M1 application ledger. A transaction writes the canonical block, both sides of every transfer (including nonces), inclusion receipts and the committed head together. Nothing is published to the in-memory ledger until the durable commit succeeds. There are no fees, minting, pruning or snapshot imports.
 
-This is a library boundary, not a running consensus node. `commit_decided(height, bytes)` **requires a trusted consensus caller that has authenticated a decision for these exact block bytes**. It rechecks execution but does not verify a quorum certificate. Do not connect it directly to RPC or feed it unverified synchronization data. A stored receipt proves local inclusion under that trust boundary; it is not a portable finality proof.
+This is the application-storage library boundary. The [running consensus adapter](consensus.md) now authenticates certificates before invoking it. `commit_decided(height, bytes)` **requires a trusted consensus caller that has authenticated a decision for these exact block bytes**. It rechecks execution but does not verify a quorum certificate. Do not connect it directly to RPC or feed it unverified synchronization data. A stored receipt proves local inclusion under that trust boundary; it is not a portable finality proof.
 
 ## Storage choice and durability
 
@@ -37,15 +37,15 @@ Any error after beginning the write path makes the handle unusable until closed 
 
 Opening the database replays every canonical block from the supplied genesis, checking signatures, parent linkage, heights and execution commitments. It compares every derived receipt, all final accounts (including nonces), the head and the exact row count with storage. Missing, extra or altered rows fail closed; unknown application versions are rejected without migration. Replay retains one block and account snapshots at a time, not a second copy of the entire history. Its startup cost grows with history and repeated full-state execution; bounded snapshots and pruning are future work.
 
-`ledger()` returns the recovered snapshot. `block(height)` provides retained bytes for later synchronization, and `receipt(tx_id)` provides the durable inclusion record. History is retained without pruning, but this alone does not implement authenticated synchronization: #9/#11 must add certificate retention/verification and any necessary schema migration. Back up only while closed or through a future consistent backup interface; copying a live file is not supported.
+`ledger()` returns the recovered snapshot. `block(height)` provides retained bytes for later synchronization, and `receipt(tx_id)` provides the durable inclusion record. History is retained without pruning, but this alone does not implement authenticated synchronization: The adapter now retains/verifies certificates in its separate consensus journal; #11 must add authenticated historical catch-up. Back up only while closed or through a future consistent backup interface; copying a live file is not supported.
 
 Replay establishes application consistency, not historical finality or freedom from rollback. An internally consistent older copy of the database cannot be detected from application data alone. It must never authorize resumed validator signing without reconciling independent WAL/signing state.
 
-## Malachite coordination required in #9
+## Malachite coordination
 
 The pinned engine sends [`Decided` and `Finalized`](https://github.com/circlefin/malachite/blob/72143f6c99a98452b587e1c392bdb80944eb2232/code/crates/app-channel/src/msgs.rs); its [decision path](https://github.com/circlefin/malachite/blob/72143f6c99a98452b587e1c392bdb80944eb2232/code/crates/engine/src/consensus.rs) flushes its WAL before delivering a decision and waits for application acknowledgement before notifying synchronization of the committed height. The WAL and this database are separate durability domains, not a distributed transaction.
 
-The integration must enforce this order:
+The integration contract is the following; implemented recovery behavior and fail-closed limits are documented in the [consensus guide](consensus.md#durable-decisions-and-signing-readiness):
 
 1. Start with signing disabled. Validate the node identity/genesis binding, recover the application store, and reconcile Malachite WAL and durable signing state. Missing or stale signing information must fail closed; reconstructing balances cannot reconstruct safe signing history.
 2. Bind the decision height and value ID to the exact canonical block. Require valid finality evidence for the genesis validator set (three distinct validators out of four equal weights), through the verified engine/adapter path. Validate synchronized certificates explicitly.
@@ -61,7 +61,7 @@ The integration must enforce this order:
 | Same height carries different block bytes | Halt as a safety/integrity fault. |
 | Application is ahead of usable WAL/signing state, or either was restored from a stale backup | Stay unable to sign until validated reconciliation; application recovery alone is insufficient. |
 
-The existing `ConsensusSigner` is still only a signing primitive. This issue does not claim end-to-end safe validator restart, an operational WAL adapter or verified network finality.
+The existing generic `ConsensusSigner` remains only a primitive. The running adapter uses a separate durable signing guard and authenticates the engine-specific proposal metadata; see its recovery limits before operating a validator.
 
 ## Verification
 

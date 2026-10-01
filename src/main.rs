@@ -6,10 +6,10 @@ use rinpqc_node::{
 };
 use std::{env, path::Path, process::ExitCode};
 
-fn run(args: &[String]) -> Result<()> {
+fn run(args: &[String]) -> eyre::Result<()> {
 	match args {
 		[arg] if arg == "--help" || arg == "-h" => {
-			println!("rinpqc-node — M1 identity tools\n\nCommands:\n  keygen <transaction|validator|network> <new-key-file>\n  genesis-create <new-json-file> <validator1> <validator2> <validator3> <validator4> <funded-account>\n  genesis-check <json-file>\n  config-check <toml-file>\n  init <toml-file>\n  --version\n\nKeys and account IDs are lowercase hex public keys. Node startup is not implemented yet.");
+			println!("rinpqc-node — M1 development node\n\nCommands:\n  keygen <transaction|validator|network> <new-key-file>\n  genesis-create <new-json-file> <validator1> <validator2> <validator3> <validator4> <funded-account>\n  genesis-check <json-file>\n  config-check <toml-file>\n  init <toml-file>\n  start <toml-file> [signed-payment-batch]\n  --version\n\nKeys and account IDs are lowercase hex public keys.");
 		},
 		[arg] if arg == "--version" || arg == "-V" => {
 			println!("rinpqc-node {}", env!("CARGO_PKG_VERSION"))
@@ -19,7 +19,7 @@ fn run(args: &[String]) -> Result<()> {
 				"transaction" => KeyRole::Transaction,
 				"validator" => KeyRole::Validator,
 				"network" => KeyRole::Network,
-				_ => return Err(Error::Role),
+				_ => return Err(Error::Role.into()),
 			};
 			let key = SecretKey::generate(role)?;
 			save_key(Path::new(path), &key)?;
@@ -50,16 +50,35 @@ fn run(args: &[String]) -> Result<()> {
 		[cmd, path] if cmd == "config-check" || cmd == "init" => {
 			let config = NodeConfig::load(Path::new(path))?;
 			if cmd == "init" {
-				config.initialize()?;
+				rinpqc_node::consensus::initialize(&config)?;
 			}
 			print_genesis(&config.genesis)?;
 			println!("validator={}", hex::encode(config.validator.public_key()));
 			println!("network={}", hex::encode(config.network.public_key()));
 		},
+		[cmd, path, rest @ ..] if cmd == "start" && rest.len() <= 1 => {
+			let config = NodeConfig::load(Path::new(path))?;
+			let payments = rest
+				.first()
+				.map(|p| rinpqc_node::consensus::load_payments(Path::new(p)))
+				.transpose()?
+				.unwrap_or_default();
+			tracing_subscriber::fmt()
+				.with_env_filter(
+					tracing_subscriber::EnvFilter::try_from_default_env()
+						.unwrap_or_else(|_| "warn".into()),
+				)
+				.with_writer(std::io::stderr)
+				.try_init()
+				.ok();
+			tokio::runtime::Builder::new_multi_thread()
+				.worker_threads(2)
+				.enable_all()
+				.build()?
+				.block_on(rinpqc_node::consensus::run(config, payments))?;
+		},
 		_ => {
-			return Err(Error::Config(
-				"Node startup is not implemented. Use --help for identity tools.",
-			))
+			return Err(Error::Config("Invalid command. Use --help for available commands.").into())
 		},
 	}
 	Ok(())
@@ -74,7 +93,7 @@ fn main() -> ExitCode {
 		.skip(1)
 		.map(|s| s.into_string().map_err(|_| Error::Encoding))
 		.collect::<Result<Vec<_>>>();
-	match args.and_then(|args| run(&args)) {
+	match args.map_err(eyre::Report::from).and_then(|args| run(&args)) {
 		Ok(()) => ExitCode::SUCCESS,
 		Err(error) => {
 			eprintln!("{error}");
