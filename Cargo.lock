@@ -212,7 +212,6 @@ dependencies = [
 [[package]]
 name = "arc-malachitebft-discovery"
 version = "0.8.0"
-source = "git+https://github.com/circlefin/malachite?rev=72143f6c99a98452b587e1c392bdb80944eb2232#72143f6c99a98452b587e1c392bdb80944eb2232"
 dependencies = [
  "arc-malachitebft-metrics",
  "either",
@@ -3323,6 +3322,7 @@ dependencies = [
  "arc-malachitebft-core-types",
  "arc-malachitebft-engine",
  "arc-malachitebft-signing",
+ "arc-malachitebft-sync",
  "async-trait",
  "borsh",
  "bytes",

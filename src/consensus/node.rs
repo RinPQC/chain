@@ -15,7 +15,7 @@ use super::{
 			},
 		},
 		AppMsg, ConsensusContext, EngineBuilder, NetworkContext, NetworkIdentity, NetworkMsg,
-		RequestContext, WalContext,
+		RequestContext, SyncContext, WalContext,
 	},
 	journal::Journal,
 	signing::{Signing, Verification},
@@ -172,7 +172,7 @@ pub(super) async fn restream_part(
 	journal.save_part(&part)?;
 	Ok(Some(part))
 }
-async fn check_certificate(
+pub(super) async fn check_certificate(
 	verifier: &Verification,
 	cert: &core::CommitCertificate<Context>,
 	validators: &Validators,
@@ -243,11 +243,16 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 		store.ledger()?.height(),
 		config.validator.public_key(),
 	)?;
+	let next_height = Arc::new(std::sync::atomic::AtomicU64::new(
+		store.ledger()?.height().checked_add(1).ok_or_else(|| eyre!("height exhausted"))?,
+	));
+	println!("SIGNING_READY next_height={}", next_height.load(std::sync::atomic::Ordering::SeqCst));
 	let address = Address(config.validator.public_key());
 	let signer: Arc<dyn Signer<Context>> = Arc::new(Signing {
 		key: config.validator,
 		journal: journal.clone(),
 		verifier: verifier.clone(),
+		next_height: next_height.clone(),
 	});
 	let mut seed = config.network.seed();
 	let keypair = Keypair::ed25519_from_bytes(seed.as_mut())?;
@@ -264,7 +269,13 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 		sync: config::ValueSyncConfig::default(),
 		moniker: address.to_string(),
 	};
-	engine_config.sync.enabled = false;
+	engine_config.sync.enabled = true;
+	engine_config.sync.status_update_interval = Duration::from_secs(1);
+	engine_config.sync.request_timeout = Duration::from_secs(5);
+	engine_config.sync.batch_size = 1;
+	engine_config.sync.parallel_requests = 1;
+	engine_config.sync.max_request_size = bytesize::ByteSize::b(128);
+	engine_config.sync.max_response_size = bytesize::ByteSize::b(MAX_WIRE as u64);
 	engine_config.consensus.wal_replay_delay = Duration::ZERO;
 	engine_config.consensus.p2p.listen_addr = multiaddr(config.listen)?;
 	engine_config.consensus.p2p.persistent_peers_only = true;
@@ -273,6 +284,8 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 	engine_config.consensus.p2p.rpc_max_size = bytesize::ByteSize::b(MAX_WIRE as u64);
 	engine_config.consensus.p2p.protocol_names.consensus =
 		format!("/rinpqc/{}/consensus/v1", hex::encode(chain));
+	engine_config.consensus.p2p.protocol_names.sync =
+		format!("/rinpqc/{}/sync/v1", hex::encode(chain));
 	for (address, key) in config.peers {
 		let public = libp2p_identity::ed25519::PublicKey::try_from_bytes(&key)?;
 		let peer = libp2p_identity::PublicKey::from(public).to_peer_id();
@@ -292,8 +305,8 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 	}
 	let (mut channels, mut handle) = EngineBuilder::new(Context, engine_config)
 		.with_default_wal(WalContext::new(dir.join("consensus.wal"), codec.clone()))
-		.with_default_network(NetworkContext::new(identity, codec))
-		.with_no_sync()
+		.with_default_network(NetworkContext::new(identity, codec.clone()))
+		.with_default_sync(SyncContext::new(codec.clone()))
 		.with_default_consensus(ConsensusContext::new_validator(
 			address,
 			Box::new(verifier.clone()),
@@ -460,6 +473,7 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 					}
 					journal.save_certificate(&certificate)?;
 					store.commit_decided(certificate.height.0, &block)?;
+					next_height.store(store.ledger()?.height().checked_add(1).ok_or_else(|| eyre!("height exhausted"))?, std::sync::atomic::Ordering::SeqCst);
 					pending.revalidate(store.ledger()?);
 					println!(
 						"COMMITTED height={} block_id={} state_root={}",
@@ -497,11 +511,30 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 				AppMsg::GetHistoryMinHeight { reply } => {
 					let _ = reply.send(Height(1));
 				},
-				AppMsg::GetDecidedValues { reply, .. } => {
-					let _ = reply.send(Vec::new());
+				AppMsg::GetDecidedValues { range, reply } => {
+					let values = super::sync::serve(&store, &journal, range)?;
+					let _ = reply.send(values);
 				},
-				AppMsg::ProcessSyncedValue { reply, .. } => {
-					let _ = reply.send(SyncedValueOutcome::PeerFault);
+				AppMsg::ProcessSyncedValue { height, round, proposer, value_bytes, reply } => {
+					let payload = super::sync::verify_payload(
+						&codec, store.ledger()?, &validators, &verifier, height, round, proposer, &value_bytes
+					).await;
+					let outcome = match payload {
+						Ok(payload) => {
+							// This cache is not committed state. Only Decided may advance the ledger.
+							journal.save_block(payload.certificate.value_id, &payload.block)?;
+							println!("SYNC_VERIFIED height={}", height.0);
+							SyncedValueOutcome::Verdict(ProposedValue {
+								height, round, valid_round: Round::Nil, proposer,
+								value: payload.certificate.value_id, validity: Validity::Valid,
+							})
+						},
+						Err(error) => {
+							tracing::warn!(%error, "Rejected sync payload");
+							SyncedValueOutcome::PeerFault
+						},
+					};
+					let _ = reply.send(outcome);
 				},
 			}
 		}

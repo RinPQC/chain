@@ -1,0 +1,21 @@
+[package]
+name = "arc-malachitebft-discovery"
+version = "0.8.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/circlefin/malachite"
+publish = false
+description = "Discovery protocol for the Malachite BFT consensus engine (local reconnect fix)"
+
+[features]
+test-utils = []
+
+[dependencies]
+malachitebft-metrics = { package = "arc-malachitebft-metrics", version = "=0.8.0", git = "https://github.com/circlefin/malachite", rev = "72143f6c99a98452b587e1c392bdb80944eb2232" }
+libp2p = { version = "0.56.0", features = ["macros", "identify", "tokio", "ed25519", "ecdsa", "tcp", "quic", "noise", "yamux", "gossipsub", "dns", "ping", "metrics", "request-response", "cbor", "serde", "kad"] }
+serde = { version = "1.0", default-features = false }
+tracing = { version = "0.1.41", default-features = false }
+tokio = "1.47.1"
+either = "1"
+rand = { version = "0.8.5", features = ["std_rng", "small_rng"] }
+eyre = "0.6"

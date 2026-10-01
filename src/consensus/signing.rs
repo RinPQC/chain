@@ -9,13 +9,18 @@ use async_trait::async_trait;
 use ed25519_dalek::Signer as _;
 use eyre::{ensure, Result};
 use malachite_signing::{Error, Signer, VerificationResult, Verifier};
-use std::sync::Arc;
+use std::sync::{
+	atomic::{AtomicU64, Ordering},
+	Arc,
+};
 
 type Ctx = types::Context;
 pub struct Signing {
 	pub key: SecretKey,
 	pub journal: Arc<Journal>,
 	pub verifier: Verification,
+	/// Next height whose parent has been durably verified. Zero keeps signing disabled.
+	pub next_height: Arc<AtomicU64>,
 }
 #[derive(Clone)]
 pub struct Verification {
@@ -57,6 +62,10 @@ impl Signing {
 		Ok(ed25519_dalek::SigningKey::from_bytes(&self.key.seed()).sign(bytes).to_bytes())
 	}
 	fn guard(&self, msg: &SignedConsensusMsg<Ctx>, phase: u8) -> Result<()> {
+		ensure!(
+			msg.height().0 == self.next_height.load(Ordering::SeqCst) && msg.height().0 > 0,
+			"signing height has no verified durable parent"
+		);
 		let slot = [
 			msg.height().0.to_be_bytes().as_slice(),
 			&msg.round().as_u32().ok_or_else(|| eyre::eyre!("nil round"))?.to_be_bytes(),

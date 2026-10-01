@@ -35,7 +35,12 @@ fn signer(dir: &std::path::Path, seed: u8) -> Signing {
 		Journal::create(&dir.join(format!("{seed}.redb")), Codec { chain }, key.public_key())
 			.unwrap(),
 	);
-	Signing { key, journal, verifier: Verification { chain } }
+	Signing {
+		key,
+		journal,
+		verifier: Verification { chain },
+		next_height: Arc::new(std::sync::atomic::AtomicU64::new(1)),
+	}
 }
 fn vote(s: &Signing, round: u32) -> Vote {
 	Context.new_prevote(
@@ -80,6 +85,7 @@ async fn durable_signing_refuses_conflicts_regression_and_cross_chain_replay() {
 		key: SecretKey::from_seed(&[11; 32], KeyRole::Validator),
 		journal,
 		verifier: Verification { chain },
+		next_height: Arc::new(std::sync::atomic::AtomicU64::new(1)),
 	};
 	assert_eq!(s.sign_vote(v.clone()).await.unwrap().signature, signed.signature);
 	let mut conflict = v;
@@ -93,6 +99,7 @@ async fn durable_signing_refuses_conflicts_regression_and_cross_chain_replay() {
 		key: SecretKey::from_seed(&[11; 32], KeyRole::Validator),
 		journal,
 		verifier: Verification { chain },
+		next_height: Arc::new(std::sync::atomic::AtomicU64::new(1)),
 	};
 	assert!(s.sign_vote(vote(&s, 0)).await.is_err());
 }
@@ -319,4 +326,209 @@ fn payment_gossip_has_exact_length_and_rejects_retired_streams() {
 	assert!(decode(retired).is_err());
 	let wrong_chain: std::io::Result<StreamMessage<Gossip>> = Codec { chain: [8; 32] }.decode(raw);
 	assert!(wrong_chain.is_err());
+}
+
+async fn sync_payload(block: Vec<u8>) -> super::sync::Payload {
+	let dir = tempfile::tempdir().unwrap();
+	let value = Value(crate::crypto::hash(
+		b"RINPQC/BLOCK/v1\0",
+		&block[..crate::application::execution::HEADER_LEN],
+	));
+	let mut votes = Vec::new();
+	for seed in 11..=13 {
+		let signer = signer(dir.path(), seed);
+		votes.push(
+			signer
+				.sign_vote(Context.new_precommit(
+					Height(1),
+					Round::ZERO,
+					NilOrVal::Val(value),
+					Address(signer.key.public_key()),
+				))
+				.await
+				.unwrap(),
+		);
+	}
+	super::sync::Payload {
+		block,
+		certificate: core::CommitCertificate::new(Height(1), Round::ZERO, value, votes),
+	}
+}
+
+#[tokio::test]
+async fn sync_wire_is_bounded_chain_bound_and_preserves_one_certificate() {
+	use super::engine::app::types::codec::HasEncodedLen;
+	use malachite_sync as sync;
+	let g = genesis();
+	let codec = Codec { chain: g.chain_id().unwrap() };
+	let ledger = Ledger::from_genesis(&g).unwrap();
+	let payload =
+		sync_payload(ledger.prepare_block(vec![]).unwrap().block().encode().unwrap()).await;
+	let raw = sync::RawDecidedValue::new(
+		codec.pack(14, &payload).unwrap(),
+		core::ExtendedCommitCertificate::from_commit_certificate_and_extensions(
+			payload.certificate.clone(),
+			core::VoteExtensions::new(vec![]),
+		),
+	);
+	let response =
+		sync::Response::ValueResponse(sync::ValueResponse::new(Height(1), vec![raw.clone()]));
+	let encoded = codec.encode(&response).unwrap();
+	assert_eq!(codec.encoded_len(&response).unwrap(), encoded.len());
+	let decoded: sync::Response<Context> = codec.decode(encoded.clone()).unwrap();
+	assert_eq!(decoded, response);
+	let other: std::io::Result<sync::Response<Context>> =
+		Codec { chain: [0; 32] }.decode(encoded.clone());
+	assert!(other.is_err());
+	let mut trailing = encoded.to_vec();
+	trailing.push(0);
+	let bad: std::io::Result<sync::Response<Context>> = codec.decode(trailing.into());
+	assert!(bad.is_err());
+	let bad: std::io::Result<sync::Response<Context>> =
+		codec.decode(vec![0; super::codec::MAX_WIRE + 1].into());
+	assert!(bad.is_err());
+	assert!(codec
+		.encode(&sync::Response::ValueResponse(sync::ValueResponse::new(
+			Height(1),
+			vec![raw.clone(), raw.clone()]
+		)))
+		.is_err());
+	let mut mismatch = raw;
+	mismatch.certificate.value_id = Value([0; 32]);
+	assert!(codec
+		.encode(&sync::Response::ValueResponse(sync::ValueResponse::new(Height(1), vec![mismatch])))
+		.is_err());
+	for height in [Height(1), Height(50)] {
+		let request = sync::Request::ValueRequest(sync::ValueRequest::new(height..=height));
+		let decoded: sync::Request<Context> =
+			codec.decode(codec.encode(&request).unwrap()).unwrap();
+		assert_eq!(decoded, request);
+		let empty = sync::Response::ValueResponse(sync::ValueResponse::new(height, vec![]));
+		let decoded: sync::Response<Context> = codec.decode(codec.encode(&empty).unwrap()).unwrap();
+		assert_eq!(decoded, empty);
+	}
+	for range in [Height(0)..=Height(0), Height(1)..=Height(2), Height(u64::MAX)..=Height(u64::MAX)]
+	{
+		assert!(codec
+			.encode(&sync::Request::ValueRequest(sync::ValueRequest::new(range)))
+			.is_err());
+	}
+	let key = super::engine::app::types::Keypair::ed25519_from_bytes([7u8; 32]).unwrap();
+	let peer = sync::PeerId::from_bytes(&key.public().to_peer_id().to_bytes()).unwrap();
+	let status =
+		sync::Status { peer_id: peer, tip_height: Height(0), history_min_height: Height(1) };
+	let decoded: sync::Status<Context> = codec.decode(codec.encode(&status).unwrap()).unwrap();
+	assert_eq!(decoded, status);
+}
+
+#[tokio::test]
+async fn sync_rejects_corruption_wrong_chain_bad_quorum_and_invalid_certified_execution() {
+	let g = genesis();
+	let ledger = Ledger::from_genesis(&g).unwrap();
+	let codec = Codec { chain: ledger.chain_id() };
+	let verifier = Verification { chain: ledger.chain_id() };
+	let validators = Validators::from_genesis(&g);
+	let proposer = Context.select_proposer(&validators, Height(1), Round::ZERO).0;
+	let payload =
+		sync_payload(ledger.prepare_block(vec![]).unwrap().block().encode().unwrap()).await;
+	let check = async |bytes: bytes::Bytes| {
+		super::sync::verify_payload(
+			&codec,
+			&ledger,
+			&validators,
+			&verifier,
+			Height(1),
+			Round::ZERO,
+			proposer,
+			&bytes,
+		)
+		.await
+	};
+	assert!(check(codec.pack(14, &payload).unwrap()).await.is_ok());
+	let mut cases = Vec::new();
+	let mut bad = payload.clone();
+	bad.certificate.commit_signatures.pop();
+	cases.push(bad);
+	let mut bad = payload.clone();
+	bad.certificate.commit_signatures[2] = bad.certificate.commit_signatures[0].clone();
+	cases.push(bad);
+	let mut bad = payload.clone();
+	bad.certificate.commit_signatures[0].signature[0] ^= 1;
+	cases.push(bad);
+	let mut bad = payload.clone();
+	bad.block[50] ^= 1;
+	cases.push(bad); // Wrong height/parent.
+	let mut bad = payload.clone();
+	bad.block.push(0);
+	cases.push(bad);
+	let mut bad = payload.clone();
+	bad.block[4] ^= 1;
+	cases.push(bad); // Wrong block chain.
+	let mut bad = payload.clone();
+	bad.certificate.height = Height(2);
+	cases.push(bad);
+	for bad in cases {
+		assert!(check(codec.pack(14, &bad).unwrap()).await.is_err());
+	}
+	assert!(check(Codec { chain: [0; 32] }.pack(14, &payload).unwrap()).await.is_err());
+	// Even an otherwise valid quorum certificate cannot authorize an invalid state root.
+	let mut block = payload.block.clone();
+	block[110] ^= 1;
+	let certified_invalid = sync_payload(block).await;
+	assert!(check(codec.pack(14, &certified_invalid).unwrap()).await.is_err());
+	assert_eq!(ledger.height(), 0);
+}
+
+#[tokio::test]
+async fn downloaded_payload_is_not_committed_history_or_signing_readiness() {
+	use std::sync::atomic::Ordering;
+	let dir = tempfile::tempdir().unwrap();
+	let g = genesis();
+	let mut store = Store::create(&dir.path().join("application.redb"), &g).unwrap();
+	let signer = signer(dir.path(), 14);
+	signer.next_height.store(0, Ordering::SeqCst);
+	assert!(signer.sign_vote(vote(&signer, 0)).await.is_err());
+	let payload = sync_payload(
+		store.ledger().unwrap().prepare_block(vec![]).unwrap().block().encode().unwrap(),
+	)
+	.await;
+	let validators = Validators::from_genesis(&g);
+	let proposer = Context.select_proposer(&validators, Height(1), Round::ZERO).0;
+	super::sync::verify_payload(
+		&signer.journal.codec,
+		store.ledger().unwrap(),
+		&validators,
+		&signer.verifier,
+		Height(1),
+		Round::ZERO,
+		proposer,
+		&signer.journal.codec.pack(14, &payload).unwrap(),
+	)
+	.await
+	.unwrap();
+	signer.journal.save_block(payload.certificate.value_id, &payload.block).unwrap();
+	assert!(super::sync::serve(&store, &signer.journal, Height(1)..=Height(1)).unwrap().is_empty());
+	recover(&mut store, &signer.journal, &signer.verifier, &validators).await.unwrap();
+	assert_eq!(store.ledger().unwrap().height(), 0); // Interrupted download must be requested again.
+	assert!(signer.sign_vote(vote(&signer, 0)).await.is_err());
+	signer.journal.save_certificate(&payload.certificate).unwrap();
+	recover(&mut store, &signer.journal, &signer.verifier, &validators).await.unwrap();
+	assert_eq!(store.ledger().unwrap().height(), 1);
+	assert_eq!(
+		super::sync::serve(&store, &signer.journal, Height(1)..=Height(1)).unwrap().len(),
+		1
+	);
+	assert!(super::sync::serve(&store, &signer.journal, Height(1)..=Height(2)).unwrap().is_empty());
+	assert!(super::sync::serve(&store, &signer.journal, Height(2)..=Height(2)).unwrap().is_empty());
+	let mut next = vote(&signer, 0);
+	next.height = Height(2);
+	assert!(signer.sign_vote(next.clone()).await.is_err());
+	// The runtime opens this gate only after recovery, WAL checks, and durable commit.
+	signer.next_height.store(2, Ordering::SeqCst);
+	signer.sign_vote(next.clone()).await.unwrap();
+	let signed = signer.sign_vote(next.clone()).await.unwrap();
+	assert_eq!(signed, signer.sign_vote(next).await.unwrap());
+	let mut future = vote(&signer, 0);
+	future.height = Height(3);
+	assert!(signer.sign_vote(future).await.is_err());
 }
