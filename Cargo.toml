@@ -1,0 +1,22 @@
+[workspace]
+members = ["."]
+resolver = "2"
+
+[workspace.dependencies]
+malachitebft-app-channel = { package = "arc-malachitebft-app-channel", git = "https://github.com/circlefin/malachite", rev = "72143f6c99a98452b587e1c392bdb80944eb2232" }
+
+[package]
+name = "rinpqc-node"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+malachitebft-app-channel.workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"
