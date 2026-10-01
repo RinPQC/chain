@@ -17,11 +17,7 @@ jobs:
         run: |
           rustup toolchain install 1.93.0 --profile minimal --component clippy --component rust-analyzer --component rustfmt
           rustup toolchain install nightly-2026-01-23 --profile minimal --component rustfmt
-      - name: Install quality tools
-        run: |
-          cargo install just --version 1.46.0 --locked
-          cargo install taplo-cli --version 0.10.0 --locked
-          cargo install cargo-nextest --version 0.9.128 --locked
-          cargo install cargo-deny --version 0.19.0 --locked
+      - name: Install verified quality tools
+        run: bash scripts/install-ci-tools.sh
       - name: Quality gate
         run: just check

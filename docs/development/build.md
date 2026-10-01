@@ -1,6 +1,6 @@
 # Building the M1 workspace
 
-The workspace contains one unpublished package, `rinpqc-node`. Modules separate deterministic application logic, the Malachite adapter, and infrastructure. They are boundaries for subsequent issues, not implemented payment or consensus services. Split crates only when an actual dependency boundary requires it.
+The workspace contains the unpublished node package, `rinpqc-node`, and two temporary network compatibility patches described below. Modules separate deterministic application logic, the Malachite adapter, and infrastructure. They are boundaries for subsequent issues, not implemented payment or consensus services. Split crates only when an actual dependency boundary requires it.
 
 ## Prerequisites
 
@@ -36,7 +36,7 @@ cargo run --locked -- --version
 | `taplo format` | Format TOML, excluding build artifacts. |
 | `just fmt-check` | Check Rust and TOML without writes. |
 | `just build` | Locked workspace build with stable Rust. |
-| `just lint` | Clippy on all workspace targets, denying warnings. |
+| `just lint` | Clippy on first-party targets, denying warnings; vendored compatibility patches retain upstream lint policy. |
 | `just test` | Nextest unit/integration tests, then Cargo doctests. |
 | `just test-crate rinpqc-node` | Run one package's tests during development. |
 | `just deny` | Check advisories, declared licenses, duplicate dependencies and source policy. |
@@ -59,8 +59,8 @@ cargo metadata --locked --format-version 1 > dependency-metadata.json
 
 The upstream Malachite packages declare Apache-2.0. Transitive packages have their own license declarations in that metadata; this is provenance, not a claim that every dependency shares one license or that a legal audit has been performed. RinPQC's own code is covered by the repository's existing [MIT license](../../LICENSE), also declared in `Cargo.toml`. Dependency changes must review the corresponding manifests and license files.
 
-CI runs `just check` on Ubuntu, including the dependency policy in `deny.toml`. Advisory results depend on the current RustSec database; a new advisory can fail an unchanged lockfile. The existing transitive `attohttpc` 0.30.1 dependency has a version-scoped MPL-2.0 exception; its file-level license obligations still apply. Duplicate versions are warnings because the upstream graph currently includes multiple major versions. Unknown registries and Git repositories are rejected, and Git sources must specify a revision. Its action revision and Rust toolchain are pinned. No secrets or machine-specific configuration are needed. Create branches using `feat/`, `chore/`, `fix/` or `docs/`.
+CI installs the same tool versions from SHA-256-pinned upstream release binaries using `scripts/install-ci-tools.sh` and runs `just check` on Ubuntu, including the dependency policy in `deny.toml`. Advisory results depend on the current RustSec database; a new advisory can fail an unchanged lockfile. The existing transitive `attohttpc` 0.30.1 dependency has a version-scoped MPL-2.0 exception; its file-level license obligations still apply. Duplicate versions are warnings because the upstream graph currently includes multiple major versions. Unknown registries and Git repositories are rejected, and Git sources must specify a revision. Its action revision and Rust toolchain are pinned. No secrets or machine-specific configuration are needed. Create branches using `feat/`, `chore/`, `fix/` or `docs/`.
 
-## Current dependency gate findings
+## Dependency remediation
 
-The initial cargo-deny run reports RUSTSEC-2026-0118 and RUSTSEC-2026-0119 for transitive `hickory-proto` 0.25.2, and RUSTSEC-2024-0436 for unmaintained `paste` 1.0.15. These remain blocking findings: no advisory ignore or CI bypass is configured. RUSTSEC-2026-0119 reports a fix in 0.26.1, outside the current dependency's 0.25 range. The current report lists no safe upgrade for RUSTSEC-2026-0118 or the unmaintained package. Remediation needs upstream investigation and regression checks. This gate reports package advisories, not a demonstrated exploit against the current scaffold.
+The initial gate exposed two Hickory advisories and unmaintained `paste`. [Temporary network compatibility patches](../../vendor/README.md) migrate the active DNS dependency graph to Hickory 0.26.3 and replace `paste` with `pastey`, without changing the pinned Malachite engine. No advisory ignores or CI bypasses are configured. Patch provenance, tests and removal conditions are recorded alongside their source.

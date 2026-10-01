@@ -1,5 +1,6 @@
 [workspace]
-members = ["."]
+default-members = ["."]
+members = [".", "vendor/libp2p-dns", "vendor/netlink-packet-core"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -21,3 +22,7 @@ unsafe_code = "forbid"
 
 [lints.clippy]
 all = "warn"
+
+[patch.crates-io]
+libp2p-dns = { path = "vendor/libp2p-dns" }
+netlink-packet-core = { path = "vendor/netlink-packet-core" }

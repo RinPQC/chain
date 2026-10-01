@@ -14,3 +14,6 @@ use_field_init_shorthand = true
 # Comments (nightly-only)
 comment_width = 100
 wrap_comments = true
+
+# Preserve upstream formatting in compatibility patches.
+ignore = ["vendor"]
