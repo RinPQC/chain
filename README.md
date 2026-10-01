@@ -135,6 +135,10 @@ The selected version's maturity, API, license, and relevant security limitations
 
 **The confirmed PoC scope is one native test coin and payments only.** Atomic asset exchange is excluded from these milestones. Earlier research included exchange in the initial financial scope; this narrower PoC does not permanently reject exchange functionality for the project.
 
+## Integration baseline
+
+[ADR 0001 — Malachite baseline for M1](docs/decisions/0001-malachite-baseline.md) proposes the pinned engine revision, application interface, recovery obligations, and PQ integration boundaries. Status and evidence limits are recorded in the ADR.
+
 ## Implementation workflow
 
 Each milestone should be broken into bounded issues linked to its completion criteria. Implementation PRs should explain the behavior changed, evidence collected, and known limitations.
