@@ -30,6 +30,6 @@ cargo tree --locked
 cargo metadata --locked --format-version 1 > dependency-metadata.json
 ```
 
-The upstream Malachite packages declare Apache-2.0. Transitive packages have their own license declarations in that metadata; this is provenance, not a claim that every dependency shares one license or that a legal audit has been performed. This bootstrap does not choose a license for RinPQC's own code. Dependency changes must review the corresponding manifests and license files.
+The upstream Malachite packages declare Apache-2.0. Transitive packages have their own license declarations in that metadata; this is provenance, not a claim that every dependency shares one license or that a legal audit has been performed. RinPQC's own code is covered by the repository's existing [MIT license](../../LICENSE), also declared in `Cargo.toml`. Dependency changes must review the corresponding manifests and license files.
 
 CI performs formatting, a locked build, Clippy and tests on Ubuntu. Its action revision and Rust toolchain are pinned. No secrets or machine-specific configuration are needed. Create branches using `feat/`, `chore/`, `fix/` or `docs/`.
