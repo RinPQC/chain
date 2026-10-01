@@ -6,3 +6,5 @@ pub mod infrastructure;
 
 pub mod crypto;
 pub mod genesis;
+
+pub mod storage;
