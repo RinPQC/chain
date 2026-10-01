@@ -189,3 +189,55 @@ pub(super) async fn verify_payload(
 	);
 	Ok(payload)
 }
+
+/// A callback can race a live decision. Stale/ahead work is a local sequencing condition,
+/// not evidence that the serving peer supplied bad data.
+pub(super) async fn process(
+	store: &Store,
+	journal: &Journal,
+	validators: &Validators,
+	verifier: &Verification,
+	height: Height,
+	round: Round,
+	proposer: Address,
+	bytes: &[u8],
+) -> Result<super::engine::app::engine::host::SyncedValueOutcome<Context>> {
+	use super::engine::app::{
+		engine::host::SyncedValueOutcome,
+		types::{core::Validity, ProposedValue},
+	};
+	let ledger = store.ledger()?;
+	if Some(height.0) != ledger.height().checked_add(1) {
+		return Ok(SyncedValueOutcome::LocalTransientError);
+	}
+	match verify_payload(
+		&journal.codec,
+		ledger,
+		validators,
+		verifier,
+		height,
+		round,
+		proposer,
+		bytes,
+	)
+	.await
+	{
+		Ok(payload) => {
+			// Only Decided may advance committed state and signing readiness.
+			journal.save_block(payload.certificate.value_id, &payload.block)?;
+			println!("SYNC_VERIFIED height={}", height.0);
+			Ok(SyncedValueOutcome::Verdict(ProposedValue {
+				height,
+				round,
+				valid_round: Round::Nil,
+				proposer,
+				value: payload.certificate.value_id,
+				validity: Validity::Valid,
+			}))
+		},
+		Err(error) => {
+			tracing::warn!(%error, "Rejected sync payload");
+			Ok(SyncedValueOutcome::PeerFault)
+		},
+	}
+}

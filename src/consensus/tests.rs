@@ -532,3 +532,63 @@ async fn downloaded_payload_is_not_committed_history_or_signing_readiness() {
 	future.height = Height(3);
 	assert!(signer.sign_vote(future).await.is_err());
 }
+
+#[tokio::test]
+async fn sync_callback_racing_a_commit_does_not_blame_the_peer() {
+	use super::engine::app::engine::host::SyncedValueOutcome;
+	let dir = tempfile::tempdir().unwrap();
+	let g = genesis();
+	let mut store = Store::create(&dir.path().join("application.redb"), &g).unwrap();
+	let signer = signer(dir.path(), 14);
+	let validators = Validators::from_genesis(&g);
+	let proposer = Context.select_proposer(&validators, Height(1), Round::ZERO).0;
+	let payload = sync_payload(
+		store.ledger().unwrap().prepare_block(vec![]).unwrap().block().encode().unwrap(),
+	)
+	.await;
+	let bytes = signer.journal.codec.pack(14, &payload).unwrap();
+	let outcome = super::sync::process(
+		&store,
+		&signer.journal,
+		&validators,
+		&signer.verifier,
+		Height(1),
+		Round::ZERO,
+		proposer,
+		&bytes,
+	)
+	.await
+	.unwrap();
+	assert!(matches!(outcome, SyncedValueOutcome::Verdict(_)));
+	assert_eq!(store.ledger().unwrap().height(), 0);
+	signer.journal.save_certificate(&payload.certificate).unwrap();
+	store.commit_decided(1, &payload.block).unwrap();
+	let outcome = super::sync::process(
+		&store,
+		&signer.journal,
+		&validators,
+		&signer.verifier,
+		Height(1),
+		Round::ZERO,
+		proposer,
+		&bytes,
+	)
+	.await
+	.unwrap();
+	assert!(matches!(outcome, SyncedValueOutcome::LocalTransientError));
+	let proposer = Context.select_proposer(&validators, Height(2), Round::ZERO).0;
+	let outcome = super::sync::process(
+		&store,
+		&signer.journal,
+		&validators,
+		&signer.verifier,
+		Height(2),
+		Round::ZERO,
+		proposer,
+		b"invalid",
+	)
+	.await
+	.unwrap();
+	assert!(matches!(outcome, SyncedValueOutcome::PeerFault));
+	assert_eq!(store.ledger().unwrap().height(), 1);
+}

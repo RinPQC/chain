@@ -5,7 +5,7 @@ use super::{
 		self,
 		app::{
 			config,
-			engine::host::{Next, SyncedValueOutcome},
+			engine::host::Next,
 			streaming::StreamContent,
 			types::{
 				codec::Codec as _,
@@ -516,24 +516,10 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 					let _ = reply.send(values);
 				},
 				AppMsg::ProcessSyncedValue { height, round, proposer, value_bytes, reply } => {
-					let payload = super::sync::verify_payload(
-						&codec, store.ledger()?, &validators, &verifier, height, round, proposer, &value_bytes
-					).await;
-					let outcome = match payload {
-						Ok(payload) => {
-							// This cache is not committed state. Only Decided may advance the ledger.
-							journal.save_block(payload.certificate.value_id, &payload.block)?;
-							println!("SYNC_VERIFIED height={}", height.0);
-							SyncedValueOutcome::Verdict(ProposedValue {
-								height, round, valid_round: Round::Nil, proposer,
-								value: payload.certificate.value_id, validity: Validity::Valid,
-							})
-						},
-						Err(error) => {
-							tracing::warn!(%error, "Rejected sync payload");
-							SyncedValueOutcome::PeerFault
-						},
-					};
+					let outcome = super::sync::process(
+						&store, &journal, &validators, &verifier,
+						height, round, proposer, &value_bytes,
+					).await?;
 					let _ = reply.send(outcome);
 				},
 			}
