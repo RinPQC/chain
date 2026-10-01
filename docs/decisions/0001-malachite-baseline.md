@@ -1,6 +1,6 @@
 # ADR 0001 — Malachite baseline for M1
 
-Status: **Proposed for review; merge requires explicit owner confirmation.**
+Status: **Accepted by the project owner on 2026-10-01; PR review and explicit merge permission remain pending.**
 
 Date: 2026-10-01. Tracking: [issue #3](https://github.com/RinPQC/chain/issues/3).
 
@@ -8,9 +8,9 @@ Date: 2026-10-01. Tracking: [issue #3](https://github.com/RinPQC/chain/issues/3)
 
 M1 needs a reproducible BFT integration for a four-validator, one-coin payment network. The application must validate payments before supporting a proposal, commit finalized effects atomically, and recover without conflicting signing. Upstream API flexibility is useful only if these responsibilities remain explicit.
 
-Recommend **Malachite v0.8.0 at commit `72143f6c99a98452b587e1c392bdb80944eb2232`**, using the **channel-based application interface**. Pin the Git revision initially so the dependency matches the inspected source exactly. Do not follow a moving branch, copy the engine into this repository, or modify its quorum/locking rules.
+Adopt **Malachite v0.8.0 at commit `72143f6c99a98452b587e1c392bdb80944eb2232`**, using the **channel-based application interface**. Pin the Git revision initially so the dependency matches the inspected source exactly. Do not follow a moving branch, copy the engine into this repository, or modify its quorum/locking rules.
 
-This record selects a proposed integration baseline, not production readiness. No upstream build, runtime benchmark, or security audit was performed for this issue. Application implementation begins in the dependent work items.
+The project owner confirmed this exact revision and the channel-based application interface for M1 on 2026-10-01. This decision accepts the integration baseline, not production readiness or permission to merge the PR. No upstream build, runtime benchmark, or security audit was performed for this issue. Application implementation begins in the dependent work items.
 
 ## Candidate comparison and provenance
 
