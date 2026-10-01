@@ -8,7 +8,7 @@ This repository hosts the node implementation, integration tests, development-ne
 
 ## Build and run locally
 
-See [build instructions](docs/development/build.md) for prerequisites, `just setup` and the shared local/CI gate `just check`. Follow the [four-validator local network walkthrough](docs/development/consensus.md) to generate keys, initialize and start a development chain. Nodes validate [payment execution](docs/development/payments.md), verify consensus certificates and [commit state durably](docs/development/storage.md). Mempool admission, historical synchronization and payment RPC remain upcoming work.
+See [build instructions](docs/development/build.md) for prerequisites, `just setup` and the shared local/CI gate `just check`. Follow the [four-validator local network walkthrough](docs/development/consensus.md) to generate keys, initialize and start a development chain. Nodes validate [payment execution](docs/development/payments.md), verify consensus certificates and [commit state durably](docs/development/storage.md). Nodes now admit and gossip a [bounded payment queue](docs/development/consensus.md#payment-queue). Historical synchronization and payment RPC remain upcoming work.
 
 ## Objective
 

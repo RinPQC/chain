@@ -20,6 +20,7 @@ struct Network {
 	genesis: Genesis,
 	tx: SignedTransfer,
 	first: usize,
+	submitter: usize,
 }
 struct Running {
 	children: Vec<(usize, Child)>,
@@ -46,6 +47,7 @@ impl Network {
 			validators.iter().map(|k| k.public_key()).collect::<Vec<_>>().try_into().unwrap();
 		ids.sort();
 		let first = validators.iter().position(|k| k.public_key() == ids[0]).unwrap();
+		let submitter = validators.iter().position(|k| k.public_key() == ids[3]).unwrap();
 		let genesis = Genesis {
 			network_nonce: sender.public_key(),
 			max_block_bytes: 1_048_576,
@@ -92,7 +94,7 @@ impl Network {
 				.unwrap();
 			assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
 		}
-		Self { dir, genesis, tx, first }
+		Self { dir, genesis, tx, first, submitter }
 	}
 	fn start(&self, excluded: Option<usize>, payments: bool) -> Running {
 		let mut children = Vec::new();
@@ -102,7 +104,9 @@ impl Network {
 			}
 			let mut cmd = Command::new(env!("CARGO_BIN_EXE_rinpqc-node"));
 			cmd.arg("start").arg(self.dir.path().join(format!("node{i}.toml")));
-			if payments {
+			// Only the fourth scheduled proposer receives the local input. Inclusion by
+			// height two therefore requires propagation to another proposer.
+			if payments && i == self.submitter {
 				cmd.arg(self.dir.path().join("payments.bin"));
 			}
 			let child = cmd

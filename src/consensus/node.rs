@@ -24,6 +24,7 @@ use super::{
 use crate::{
 	application::{execution::Ledger, SignedTransfer},
 	infrastructure::{write_new, NodeConfig},
+	mempool::PaymentQueue,
 	storage::Store,
 };
 use eyre::{ensure, eyre, Result};
@@ -140,7 +141,11 @@ async fn publish(channels: &engine::Channels<Context>, part: Part) -> Result<()>
 	);
 	channels
 		.network
-		.send(NetworkMsg::PublishProposalPart(StreamMessage::new(id, 0, StreamContent::Data(part))))
+		.send(NetworkMsg::PublishProposalPart(StreamMessage::new(
+			id,
+			0,
+			StreamContent::Data(Gossip::Proposal(Box::new(part))),
+		)))
 		.await
 		.map_err(|_| eyre!("network stopped"))
 }
@@ -216,8 +221,8 @@ pub(super) async fn recover(
 	}
 	Ok(())
 }
-/// Start a development validator. Optional signed payments are a bounded local fixture input,
-/// not a mempool or RPC. Every proposed block follows the same validation/commit path.
+/// Start a development validator with optional local queue admission.
+/// Every proposed block follows the same validation/commit path.
 pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()> {
 	config.check_directory()?;
 	let dir = &config.data_dir;
@@ -277,15 +282,14 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 			.persistent_peers
 			.push(format!("{}/p2p/{peer}", multiaddr(address)?).parse()?);
 	}
-	let pending: Vec<_> = payments
-		.into_iter()
-		.filter_map(|p| match store.receipt(&p.transfer.id()) {
-			Ok(Some(_)) => None,
-			Ok(None) => Some(Ok(p)),
-			Err(e) => Some(Err(e)),
-		})
-		.collect::<std::result::Result<_, _>>()?;
-	store.ledger()?.prepare_block(pending.clone())?;
+	let mut pending = PaymentQueue::default();
+	for payment in payments {
+		// Verify before recognizing a finalized retry; a forged signature is not a retry.
+		crate::crypto::verify_transfer(&payment, &chain)?;
+		if store.receipt(&payment.transfer.id())?.is_none() {
+			pending.admit(store.ledger()?, &payment.encode())?;
+		}
+	}
 	let (mut channels, mut handle) = EngineBuilder::new(Context, engine_config)
 		.with_default_wal(WalContext::new(dir.join("consensus.wal"), codec.clone()))
 		.with_default_network(NetworkContext::new(identity, codec))
@@ -299,9 +303,31 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 		.build()
 		.await?;
 	let mut active_round = Round::ZERO;
+	let mut gossip_tick = tokio::time::interval(Duration::from_millis(250));
+	gossip_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+	let mut gossip_cursor = None;
+	let mut gossip_sequence = 0u64;
+	let mut ingress_window = std::time::Instant::now();
+	let mut ingress_remaining = 32u32;
 	let result = async {
 		loop {
 			let msg = tokio::select! {
+				_ = gossip_tick.tick() => {
+					if let Some((key, payment)) = pending.next_gossip(gossip_cursor) {
+						// A fresh stream ID permits retry after peers connect or previously reject it.
+						gossip_sequence = gossip_sequence.checked_add(1).ok_or_else(|| eyre!("gossip counter exhausted"))?;
+						let id = StreamId::new([address.0.as_slice(), &gossip_sequence.to_be_bytes()].concat().into());
+						let raw = payment.encode().try_into().map_err(|_| eyre!("payment encoding length"))?;
+						let msg = NetworkMsg::PublishProposalPart(StreamMessage::new(id, 0, StreamContent::Data(Gossip::Payment(raw))));
+						// Congestion must not block consensus; retry this entry on the next tick.
+						match channels.network.try_send(msg) {
+							Ok(()) => gossip_cursor = Some(key),
+							Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {},
+							Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => return Err(eyre!("network stopped")),
+						}
+					}
+					continue;
+				},
 				_ = tokio::signal::ctrl_c() => return Ok(()),
 				_ = &mut handle.handle => return Err(eyre!("consensus engine stopped")),
 				msg = channels.consensus.recv() => msg.ok_or_else(|| eyre!("consensus channel closed"))?,
@@ -342,15 +368,7 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 						);
 						part
 					} else {
-						let payments = pending
-							.iter()
-							.filter_map(|p| match store.receipt(&p.transfer.id()) {
-								Ok(Some(_)) => None,
-								Ok(None) => Some(Ok(p.clone())),
-								Err(e) => Some(Err(e)),
-							})
-							.collect::<std::result::Result<Vec<_>, _>>()?;
-						let block = store.ledger()?.prepare_block(payments)?;
+						let block = pending.propose(store.ledger()?)?;
 						let proposal = Proposal {
 							height,
 							round,
@@ -374,7 +392,18 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 				AppMsg::ReceivedProposalPart { part, reply, .. } => {
 					let mut value = None;
 					if part.sequence == 0 {
-						if let StreamContent::Data(part) = part.content {
+						if let StreamContent::Data(Gossip::Payment(raw)) = &part.content {
+							if ingress_window.elapsed() >= Duration::from_secs(1) {
+								ingress_window = std::time::Instant::now();
+								ingress_remaining = 32;
+							}
+							if ingress_remaining > 0 {
+								ingress_remaining -= 1;
+								// Peer rejection is local policy, not a fatal engine error.
+								let _ = pending.admit(store.ledger()?, raw);
+							}
+						}
+						if let StreamContent::Data(Gossip::Proposal(part)) = part.content {
 							if part.proposal.round.as_i64()
 								>= active_round.as_i64().saturating_sub(1)
 								&& part.proposal.round.as_i64() <= active_round.as_i64() + 1
@@ -431,6 +460,7 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 					}
 					journal.save_certificate(&certificate)?;
 					store.commit_decided(certificate.height.0, &block)?;
+					pending.revalidate(store.ledger()?);
 					println!(
 						"COMMITTED height={} block_id={} state_root={}",
 						store.ledger()?.height(),
