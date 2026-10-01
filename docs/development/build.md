@@ -1,6 +1,6 @@
 # Building the M1 workspace
 
-The workspace contains the unpublished node package, `rinpqc-node`, and two temporary network compatibility patches described below. Modules separate deterministic application logic, the Malachite adapter, and infrastructure. They are boundaries for subsequent issues, not implemented payment or consensus services. Split crates only when an actual dependency boundary requires it.
+The workspace contains the unpublished node package, `rinpqc-node`, and two temporary network compatibility patches described below. Modules separate deterministic application logic, the Malachite adapter, and infrastructure. The payment executor, durable store and running consensus adapter live behind these module boundaries. Split crates only when an actual dependency boundary requires it.
 
 ## Prerequisites
 
@@ -44,7 +44,7 @@ cargo run --locked -- --version
 
 Rust builds use 1.93.0; only formatting uses `nightly-2026-01-23` because import grouping and comment wrapping need unstable rustfmt options. Pinning the formatter prevents formatting drift. Keep both toolchain pins synchronized between the justfile, toolchain file, CI and these instructions when updating them. Taplo sorts keys and arrays; avoid applying it to future TOML arrays whose ordering has application meaning without a scoped exception.
 
-Running without arguments, with `start`, or with unsupported arguments exits unsuccessfully. The help/version commands create no state. The [identity commands](identities.md) separately generate keys and initialize configuration; no command starts a consensus loop yet. This prevents mistaking the scaffold for a functioning chain. The CLI integration test checks this startup boundary; payment and consensus tests arrive with their implementations.
+Running without arguments, with an incomplete `start`, or with unsupported arguments exits unsuccessfully. Help/version create no state. The [identity commands](identities.md) create keys and initialize bound recovery data; `start <config>` runs a validator. Follow the [four-node walkthrough](consensus.md) for the current network and restart limits. The test suite includes real loopback consensus processes, not just CLI argument checks.
 
 ## Dependencies and licenses
 

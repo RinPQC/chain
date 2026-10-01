@@ -2,13 +2,13 @@
 
 A Rust payment-chain proof of concept built around **Malachite**, progressing from a working consensus network to post-quantum cryptography.
 
-**Current stage: M1 durable payment state.** This README defines two implementation milestones and their completion criteria. It does not claim that either milestone is implemented, that the network is production-ready, or that its security has been independently audited.
+**Current stage: M1 running consensus network.** This README defines two implementation milestones and their completion criteria. It does not claim that either milestone is implemented, that the network is production-ready, or that its security has been independently audited.
 
 This repository hosts the node implementation, integration tests, development-network configuration, and implementation documentation. Research, requirements, and architectural decision records live in [RinPQC/consensus](https://github.com/RinPQC/consensus).
 
-## Build and run the scaffold
+## Build and run locally
 
-See [build instructions](docs/development/build.md) for prerequisites, `just setup` and the shared local/CI gate `just check`. The executable supports key generation, genesis/configuration validation and local initialization. Follow the [local identity walkthrough](docs/development/identities.md). The [payment executor](docs/development/payments.md) validates transfers and blocks in memory. The [application store](docs/development/storage.md) commits blocks and payment effects atomically and checks them on recovery. Network startup, consensus-driven settlement and payment RPC are not implemented yet.
+See [build instructions](docs/development/build.md) for prerequisites, `just setup` and the shared local/CI gate `just check`. Follow the [four-validator local network walkthrough](docs/development/consensus.md) to generate keys, initialize and start a development chain. Nodes validate [payment execution](docs/development/payments.md), verify consensus certificates and [commit state durably](docs/development/storage.md). Mempool admission, historical synchronization and payment RPC remain upcoming work.
 
 ## Objective
 

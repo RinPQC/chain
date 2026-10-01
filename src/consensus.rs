@@ -1,6 +1,11 @@
-//! Adapter boundary for the pinned channel-based consensus engine.
-//!
-//! Keep engine-specific types here; translate them to application types when
-//! implementing the consensus adapter. No engine is started by this scaffold.
-
+//! Adapter for the pinned Malachite engine. Consensus rules remain in the upstream engine.
 pub use malachitebft_app_channel as engine;
+mod codec;
+mod journal;
+mod node;
+mod signing;
+mod types;
+pub use node::{initialize, load_payments, run};
+
+#[cfg(test)]
+mod tests;
