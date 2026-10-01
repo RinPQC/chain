@@ -8,7 +8,7 @@ This repository hosts the node implementation, integration tests, development-ne
 
 ## Build and run the scaffold
 
-See [build instructions](docs/development/build.md) for prerequisites and the locked build, lint and test commands. The current executable supports `--help` and `--version`; node startup and payment processing are not implemented yet.
+See [build instructions](docs/development/build.md) for prerequisites, `just setup` and the shared local/CI gate `just check`. The current executable supports `--help` and `--version`; node startup and payment processing are not implemented yet.
 
 ## Objective
 

@@ -1,0 +1,33 @@
+# Check the complete resolved dependency graph, including other target platforms.
+[advisories]
+version = 2
+
+[licenses]
+allow = [
+	"Apache-2.0",
+	"BSD-2-Clause",
+	"BSD-3-Clause",
+	"BSL-1.0",
+	"CC0-1.0",
+	"ISC",
+	"MIT",
+	"Unicode-3.0",
+	"Zlib",
+]
+version = 2
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+allow-git = ["https://github.com/circlefin/malachite"]
+required-git-spec = "rev"
+unknown-git = "deny"
+unknown-registry = "deny"
+
+# Existing transitive HTTP client; retain its file-level MPL obligations.
+[[licenses.exceptions]]
+allow = ["MPL-2.0"]
+name = "attohttpc"
+version = "=0.30.1"

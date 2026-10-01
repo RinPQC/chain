@@ -1,0 +1,17 @@
+exclude = ["**/target/**", "vendor/**"]
+include = ["**/*.toml"]
+
+[formatting]
+array_auto_collapse = false
+array_auto_expand = true
+indent_string = "\t"
+inline_table_expand = false
+reorder_arrays = true
+reorder_keys = true
+
+[[rule]]
+include = ["**/Cargo.toml"]
+keys = ["dependencies", "dev-dependencies", "workspace.dependencies"]
+
+[rule.formatting]
+reorder_keys = true

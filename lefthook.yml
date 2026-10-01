@@ -1,0 +1,18 @@
+# Local quality gates. Install hooks once with `just setup`.
+glob_matcher: doublestar
+pre-commit:
+  piped: true
+  jobs:
+    - name: format
+      glob: '**/*.rs'
+      run: just fmt
+      stage_fixed: true
+    - name: format toml
+      glob: '**/*.toml'
+      run: taplo format
+      stage_fixed: true
+# Keep pushes fast; CI and `just check` run the complete gate.
+pre-push:
+  jobs:
+    - name: check
+      run: just fmt-check lint

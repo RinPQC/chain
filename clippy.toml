@@ -1,0 +1,2 @@
+# Workspace-wide configuration; component-specific lint policy belongs in code.
+too-many-arguments-threshold = 10

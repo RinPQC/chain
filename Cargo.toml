@@ -1,17 +1,18 @@
 [workspace]
-members = ["."]
+default-members = ["."]
+members = [".", "vendor/libp2p-dns", "vendor/netlink-packet-core"]
 resolver = "2"
 
 [workspace.dependencies]
-malachitebft-app-channel = { package = "arc-malachitebft-app-channel", git = "https://github.com/circlefin/malachite", rev = "72143f6c99a98452b587e1c392bdb80944eb2232" }
+malachitebft-app-channel = { package = "arc-malachitebft-app-channel", version = "=0.8.0", git = "https://github.com/circlefin/malachite", rev = "72143f6c99a98452b587e1c392bdb80944eb2232" }
 
 [package]
-name = "rinpqc-node"
-version = "0.1.0"
 edition = "2021"
-rust-version = "1.88"
-publish = false
 license = "MIT"
+name = "rinpqc-node"
+publish = false
+rust-version = "1.93"
+version = "0.1.0"
 
 [dependencies]
 malachitebft-app-channel.workspace = true
@@ -21,3 +22,7 @@ unsafe_code = "forbid"
 
 [lints.clippy]
 all = "warn"
+
+[patch.crates-io]
+libp2p-dns = { path = "vendor/libp2p-dns" }
+netlink-packet-core = { path = "vendor/netlink-packet-core" }

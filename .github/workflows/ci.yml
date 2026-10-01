@@ -8,18 +8,16 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config
-      - name: Install pinned Rust
-        run: rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
-      - name: Formatting
-        run: cargo fmt --all -- --check
-      - name: Build
-        run: cargo build --workspace --locked
-      - name: Lint
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Test
-        run: cargo test --workspace --locked
+      - name: Install pinned Rust and formatter
+        run: |
+          rustup toolchain install 1.93.0 --profile minimal --component clippy --component rust-analyzer --component rustfmt
+          rustup toolchain install nightly-2026-01-23 --profile minimal --component rustfmt
+      - name: Install verified quality tools
+        run: bash scripts/install-ci-tools.sh
+      - name: Quality gate
+        run: just check
