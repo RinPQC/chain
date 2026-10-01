@@ -69,3 +69,8 @@ tempfile = "3"
 
 [patch."https://github.com/circlefin/malachite"]
 arc-malachitebft-discovery = { path = "vendor/malachite-discovery" }
+
+# Keep real cryptographic verification practical in debug multi-node tests.
+# Overflow checks and debug assertions retain the development profile defaults.
+[profile.dev.package.curve25519-dalek]
+opt-level = 3

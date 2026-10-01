@@ -140,7 +140,8 @@ impl Network {
 }
 impl Running {
 	fn wait(&mut self, height: u64) {
-		let until = Instant::now() + Duration::from_secs(55);
+		// This is a bounded integration-test deadline, not a consensus latency target.
+		let until = Instant::now() + Duration::from_secs(120);
 		loop {
 			let mut ready = true;
 			for (i, child) in &mut self.children {
@@ -256,6 +257,23 @@ fn signed_history(network: &Network, index: usize) -> std::collections::BTreeMap
 		})
 		.collect()
 }
+fn certified_height(network: &Network, index: usize) -> u64 {
+	use redb::{ReadableDatabase, TableDefinition};
+	let database =
+		redb::Database::open(network.dir.path().join(format!("node{index}/consensus.redb")))
+			.unwrap();
+	let read = database.begin_read().unwrap();
+	let table = read.open_table(TableDefinition::<&[u8], &[u8]>::new("consensus_v1")).unwrap();
+	table
+		.range(b"c".as_slice()..b"d".as_slice())
+		.unwrap()
+		.map(|entry| {
+			let (key, _) = entry.unwrap();
+			u64::from_be_bytes(key.value()[1..].try_into().unwrap())
+		})
+		.max()
+		.unwrap_or(0)
+}
 fn stop_one(nodes: &mut Running, index: usize) {
 	let position = nodes.children.iter().position(|(i, _)| *i == index).unwrap();
 	let (_, mut child) = nodes.children.remove(position);
@@ -308,12 +326,15 @@ fn fresh_and_returning_validator_resume_verified_history_while_peers_keep_produc
 		store.ledger().unwrap().height()
 	};
 	assert!((1..6).contains(&checkpoint), "did not interrupt an incomplete download: {checkpoint}");
+	// A crash can occur after the certificate is durable but before application commit.
+	let certified = certified_height(&network, late);
+	assert!((checkpoint..=checkpoint + 1).contains(&certified));
 	let prior_signatures = signed_history(&network, late);
 	peers.wait(8);
 	peers.children.push((late, network.start_node(late, false)));
 	peers.wait(10);
 	let logs = fs::read_to_string(network.dir.path().join(format!("out{late}.log"))).unwrap();
-	assert!(logs.contains(&format!("SIGNING_READY next_height={}", checkpoint + 1)), "{logs}");
+	assert!(logs.contains(&format!("SIGNING_READY next_height={}", certified + 1)), "{logs}");
 	assert!(logs.contains("SYNC_VERIFIED"), "{logs}");
 	// Take a participating validator offline once more while the other three continue.
 	stop_one(&mut peers, late);
