@@ -38,6 +38,8 @@ Do not delete, replace or copy a used validator's recovery files to make it star
 
 ## Verification
 
-`just check` covers bounded codec round trips and rejection, wrong-chain data, corrupt blocks, insufficient/duplicate/invalid signatures, invalid execution despite a quorum certificate, unavailable history, and the distinction between cached data, committed state and signing readiness. The subprocess suite covers late joining, interruption and resumption from a partial history, independent validator downtime, identical committed history and balances, preservation of prior signatures and renewed participation required for quorum while peers remain online.
+`just check` covers bounded codec round trips and rejection, wrong-chain data, corrupt blocks, insufficient/duplicate/invalid signatures, invalid execution despite a quorum certificate, unavailable history, and the distinction between cached data, committed state and signing readiness. The subprocess suite uses SIGINT for planned stops and covers late joining, interruption and resumption from a partial history, independent validator downtime, identical committed history and balances, preservation of prior signatures and renewed participation required for quorum while peers remain online.
+
+An ungraceful stop in the signature-before-WAL window may refuse restart, as described above; planned-stop coverage does not promise automatic recovery from every process crash. Unit tests separately verify that an incomplete signing WAL fails closed.
 
 These tests do not establish a catch-up throughput target or complete Byzantine network-load resistance. Full replay and execution costs, retained-history growth and upstream actor buffering remain resource limits to measure in later devnet acceptance work.

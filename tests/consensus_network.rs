@@ -276,9 +276,22 @@ fn certified_height(network: &Network, index: usize) -> u64 {
 }
 fn stop_one(nodes: &mut Running, index: usize) {
 	let position = nodes.children.iter().position(|(i, _)| *i == index).unwrap();
-	let (_, mut child) = nodes.children.remove(position);
-	child.kill().unwrap();
-	child.wait().unwrap();
+	let child = &mut nodes.children[position].1;
+	assert!(Command::new("kill")
+		.args(["-INT", &child.id().to_string()])
+		.status()
+		.unwrap()
+		.success());
+	let until = Instant::now() + Duration::from_secs(10);
+	loop {
+		if let Some(status) = child.try_wait().unwrap() {
+			assert!(status.success(), "node {index} failed planned shutdown: {status}");
+			break;
+		}
+		assert!(Instant::now() < until, "node {index} did not finish planned shutdown");
+		thread::sleep(Duration::from_millis(10));
+	}
+	nodes.children.remove(position);
 }
 fn assert_common_history(network: &Network, height: u64) {
 	let stores: Vec<_> = (0..4)
@@ -316,7 +329,9 @@ fn fresh_and_returning_validator_resume_verified_history_while_peers_keep_produc
 		dir: network.dir.path().to_path_buf(),
 	};
 	joining.wait(1);
-	drop(joining); // Interrupt catch-up, retaining all durable files.
+	// Planned interruption drains the engine; Drop remains emergency crash cleanup.
+	stop_one(&mut joining, late);
+	drop(joining);
 	let checkpoint = {
 		let store = Store::open(
 			&network.dir.path().join(format!("node{late}/application.redb")),
