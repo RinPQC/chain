@@ -1,4 +1,4 @@
-# RinjaniChain
+# RinPQC
 
 A Rust payment-chain proof of concept built around **Malachite**, progressing from a working consensus network to post-quantum cryptography.
 
