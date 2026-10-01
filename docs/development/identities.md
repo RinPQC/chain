@@ -45,7 +45,7 @@ Key files use `RINKEY01 || suite:u16 || role:u8 || seed:bytes32` (43 bytes). Sui
 
 The secret-key wrapper has no Debug/Clone implementation. Temporary seed buffers are zeroized and Dalek's signing-key zeroization is enabled. Keygen prints only the public key; parsing errors do not echo secret bytes. Do not use the public deterministic seeds in the test fixtures as node keys.
 
-Ed25519 authorization uses `ed25519-dalek` 2.2.0 strict verification. Public keys must also have canonical compressed encoding, be in the prime-order subgroup, and not be low-order. Canonical transfer bytes and SHA-256 commitments follow [the M1 specification](../specs/m1-payment-semantics.md). Signature authorization does not imply sufficient funds or a valid account nonce; execution checks are #7.
+Ed25519 authorization uses `ed25519-dalek` 2.2.0 strict verification. Public keys must also have canonical compressed encoding, be in the prime-order subgroup, and not be low-order. Canonical transfer bytes and SHA-256 commitments follow [the M1 specification](../specs/m1-payment-semantics.md). Signature authorization does not imply sufficient funds or a valid account nonce; execution checks are implemented in the [payment executor](payments.md).
 
 `TransactionSigner` and `ConsensusSigner` are separate interfaces with key-role enforcement. The latter is a cryptographic primitive only; it does not prevent double-signing and is not exposed as a CLI command. #9 must wire a durable anti-equivocation guard before a node can use it for consensus. Its current signing input is:
 
