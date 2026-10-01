@@ -1,1 +1,5 @@
 /target/
+
+# Local identity material must never be committed.
+*.key
+/node-data/
