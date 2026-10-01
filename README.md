@@ -133,7 +133,7 @@ The selected version's maturity, API, license, and relevant security limitations
 | Production operations | Production governance and upgrade mechanisms, mobile-validation guarantees, and an archive-service/incentive model. |
 | Historical migration | Preserving a live classical-signature network through the transition to PQ. |
 
-**Atomic asset exchange is outside the proposed PoC scope, pending explicit confirmation of that scope adjustment.** Earlier research included payments and atomic exchange in the starting financial scope. The current PoC prioritizes payments and PQ integration; this does not record a permanent rejection of exchange functionality for the project.
+**The confirmed PoC scope is one native test coin and payments only.** Atomic asset exchange is excluded from these milestones. Earlier research included exchange in the initial financial scope; this narrower PoC does not permanently reject exchange functionality for the project.
 
 ## Implementation workflow
 
@@ -141,4 +141,4 @@ Each milestone should be broken into bounded issues linked to its completion cri
 
 Architectural decisions remain explicit records in the research repository. Completing a PoC task does not silently approve production economics, security assumptions, or features outside this scope.
 
-The immediate next step is to agree on the milestone scope and then select the pinned Malachite integration baseline. This document itself introduces no implementation.
+The immediate next step is to select the pinned Malachite integration baseline within this PoC scope. This document itself introduces no implementation.
