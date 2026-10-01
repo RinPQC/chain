@@ -62,7 +62,7 @@ The initial setup should retain the history needed for its synchronization tests
 | ID | Criterion |
 | --- | --- |
 | M1-01 | Correct nodes finalize the same history and derive identical account balances. |
-| M1-02 | An accepted valid payment takes effect exactly once. Invalid signatures, insufficient funds, replay attempts, and conflicting double-spend attempts are rejected as required by the specified transaction rules. |
+| M1-02 | An accepted valid payment takes effect exactly once. Sender and recipient balances, transfer status, and replay-protection state commit atomically, including across a crash/restart: recovery must expose either the complete committed payment or none of its effects, never a partial transfer. Invalid signatures, insufficient funds, replay attempts, and conflicting double-spend attempts are rejected as required by the specified transaction rules. |
 | M1-03 | With four equal-power validators and one unavailable, the remaining three continue finalizing blocks after applicable timeouts, under the declared network conditions. |
 | M1-04 | A restarted node restores durable state, catches up, and safely resumes its duties without conflicting signing caused by lost or stale local state. |
 | M1-05 | A new node synchronizes to the same verified development-chain state from the declared genesis and available history. |
