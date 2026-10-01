@@ -1,0 +1,571 @@
+{
+  "format": "m1-execution-vectors-v1",
+  "cases": [
+    {
+      "name": "valid_payment",
+      "initial": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      },
+      "transfers": [
+        {
+          "sender": "A",
+          "recipient": "B",
+          "amount": "30",
+          "nonce": "0",
+          "signature_valid": true
+        }
+      ],
+      "expected_error": null,
+      "expected_state": {
+        "A": {
+          "balance": "70",
+          "next_nonce": "1"
+        },
+        "B": {
+          "balance": "50",
+          "next_nonce": "0"
+        }
+      }
+    },
+    {
+      "name": "new_recipient",
+      "initial": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      },
+      "transfers": [
+        {
+          "sender": "A",
+          "recipient": "C",
+          "amount": "30",
+          "nonce": "0",
+          "signature_valid": true
+        }
+      ],
+      "expected_error": null,
+      "expected_state": {
+        "A": {
+          "balance": "70",
+          "next_nonce": "1"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        },
+        "C": {
+          "balance": "30",
+          "next_nonce": "0"
+        }
+      }
+    },
+    {
+      "name": "spend_entire_balance",
+      "initial": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      },
+      "transfers": [
+        {
+          "sender": "A",
+          "recipient": "B",
+          "amount": "100",
+          "nonce": "0",
+          "signature_valid": true
+        }
+      ],
+      "expected_error": null,
+      "expected_state": {
+        "A": {
+          "balance": "0",
+          "next_nonce": "1"
+        },
+        "B": {
+          "balance": "120",
+          "next_nonce": "0"
+        }
+      }
+    },
+    {
+      "name": "zero_amount",
+      "initial": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      },
+      "transfers": [
+        {
+          "sender": "A",
+          "recipient": "B",
+          "amount": "0",
+          "nonce": "0",
+          "signature_valid": true
+        }
+      ],
+      "expected_error": "ZERO_AMOUNT",
+      "expected_state": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      }
+    },
+    {
+      "name": "self_transfer",
+      "initial": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      },
+      "transfers": [
+        {
+          "sender": "A",
+          "recipient": "A",
+          "amount": "30",
+          "nonce": "0",
+          "signature_valid": true
+        }
+      ],
+      "expected_error": "SELF_TRANSFER",
+      "expected_state": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      }
+    },
+    {
+      "name": "bad_signature",
+      "initial": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      },
+      "transfers": [
+        {
+          "sender": "A",
+          "recipient": "B",
+          "amount": "30",
+          "nonce": "0",
+          "signature_valid": false
+        }
+      ],
+      "expected_error": "INVALID_SIGNATURE",
+      "expected_state": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      }
+    },
+    {
+      "name": "future_nonce",
+      "initial": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      },
+      "transfers": [
+        {
+          "sender": "A",
+          "recipient": "B",
+          "amount": "30",
+          "nonce": "1",
+          "signature_valid": true
+        }
+      ],
+      "expected_error": "NONCE_TOO_HIGH",
+      "expected_state": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      }
+    },
+    {
+      "name": "insufficient_funds",
+      "initial": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      },
+      "transfers": [
+        {
+          "sender": "A",
+          "recipient": "B",
+          "amount": "101",
+          "nonce": "0",
+          "signature_valid": true
+        }
+      ],
+      "expected_error": "INSUFFICIENT_FUNDS",
+      "expected_state": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      }
+    },
+    {
+      "name": "absent_sender",
+      "initial": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      },
+      "transfers": [
+        {
+          "sender": "C",
+          "recipient": "B",
+          "amount": "30",
+          "nonce": "0",
+          "signature_valid": true
+        }
+      ],
+      "expected_error": "INSUFFICIENT_FUNDS",
+      "expected_state": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      }
+    },
+    {
+      "name": "replay",
+      "initial": {
+        "A": {
+          "balance": "70",
+          "next_nonce": "1"
+        },
+        "B": {
+          "balance": "50",
+          "next_nonce": "0"
+        }
+      },
+      "transfers": [
+        {
+          "sender": "A",
+          "recipient": "B",
+          "amount": "30",
+          "nonce": "0",
+          "signature_valid": true
+        }
+      ],
+      "expected_error": "NONCE_TOO_LOW",
+      "expected_state": {
+        "A": {
+          "balance": "70",
+          "next_nonce": "1"
+        },
+        "B": {
+          "balance": "50",
+          "next_nonce": "0"
+        }
+      }
+    },
+    {
+      "name": "nonce_exhausted",
+      "initial": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "18446744073709551615"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      },
+      "transfers": [
+        {
+          "sender": "A",
+          "recipient": "B",
+          "amount": "30",
+          "nonce": "18446744073709551615",
+          "signature_valid": true
+        }
+      ],
+      "expected_error": "NONCE_EXHAUSTED",
+      "expected_state": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "18446744073709551615"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      },
+      "defensive_unreachable_fixture": true
+    },
+    {
+      "name": "recipient_overflow",
+      "initial": {
+        "A": {
+          "balance": "1",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "18446744073709551615",
+          "next_nonce": "0"
+        }
+      },
+      "transfers": [
+        {
+          "sender": "A",
+          "recipient": "B",
+          "amount": "1",
+          "nonce": "0",
+          "signature_valid": true
+        }
+      ],
+      "expected_error": "BALANCE_OVERFLOW",
+      "expected_state": {
+        "A": {
+          "balance": "1",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "18446744073709551615",
+          "next_nonce": "0"
+        }
+      },
+      "defensive_unreachable_fixture": true
+    },
+    {
+      "name": "duplicate_in_block",
+      "initial": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      },
+      "transfers": [
+        {
+          "sender": "A",
+          "recipient": "B",
+          "amount": "30",
+          "nonce": "0",
+          "signature_valid": true
+        },
+        {
+          "sender": "A",
+          "recipient": "B",
+          "amount": "30",
+          "nonce": "0",
+          "signature_valid": true
+        }
+      ],
+      "expected_error": "NONCE_TOO_LOW",
+      "expected_state": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      }
+    },
+    {
+      "name": "conflict_in_block",
+      "initial": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      },
+      "transfers": [
+        {
+          "sender": "A",
+          "recipient": "B",
+          "amount": "30",
+          "nonce": "0",
+          "signature_valid": true
+        },
+        {
+          "sender": "A",
+          "recipient": "B",
+          "amount": "20",
+          "nonce": "0",
+          "signature_valid": true
+        }
+      ],
+      "expected_error": "NONCE_TOO_LOW",
+      "expected_state": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      }
+    },
+    {
+      "name": "sequential_nonces",
+      "initial": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      },
+      "transfers": [
+        {
+          "sender": "A",
+          "recipient": "B",
+          "amount": "30",
+          "nonce": "0",
+          "signature_valid": true
+        },
+        {
+          "sender": "A",
+          "recipient": "B",
+          "amount": "20",
+          "nonce": "1",
+          "signature_valid": true
+        }
+      ],
+      "expected_error": null,
+      "expected_state": {
+        "A": {
+          "balance": "50",
+          "next_nonce": "2"
+        },
+        "B": {
+          "balance": "70",
+          "next_nonce": "0"
+        }
+      }
+    },
+    {
+      "name": "spend_received_credit",
+      "initial": {
+        "A": {
+          "balance": "100",
+          "next_nonce": "0"
+        },
+        "B": {
+          "balance": "20",
+          "next_nonce": "0"
+        }
+      },
+      "transfers": [
+        {
+          "sender": "A",
+          "recipient": "B",
+          "amount": "30",
+          "nonce": "0",
+          "signature_valid": true
+        },
+        {
+          "sender": "B",
+          "recipient": "C",
+          "amount": "50",
+          "nonce": "0",
+          "signature_valid": true
+        }
+      ],
+      "expected_error": null,
+      "expected_state": {
+        "A": {
+          "balance": "70",
+          "next_nonce": "1"
+        },
+        "B": {
+          "balance": "0",
+          "next_nonce": "1"
+        },
+        "C": {
+          "balance": "50",
+          "next_nonce": "0"
+        }
+      }
+    }
+  ]
+}
