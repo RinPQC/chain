@@ -44,7 +44,7 @@ cargo run --locked -- --version
 
 Rust builds use 1.93.0; only formatting uses `nightly-2026-01-23` because import grouping and comment wrapping need unstable rustfmt options. Pinning the formatter prevents formatting drift. Keep both toolchain pins synchronized between the justfile, toolchain file, CI and these instructions when updating them. Taplo sorts keys and arrays; avoid applying it to future TOML arrays whose ordering has application meaning without a scoped exception.
 
-Running without arguments, with `start`, or with unsupported arguments exits unsuccessfully. No service, port, validator key, database or consensus loop is created. This prevents mistaking the scaffold for a functioning chain. The CLI integration test checks this startup boundary; payment and consensus tests arrive with their implementations.
+Running without arguments, with `start`, or with unsupported arguments exits unsuccessfully. The help/version commands create no state. The [identity commands](identities.md) separately generate keys and initialize configuration; no command starts a consensus loop yet. This prevents mistaking the scaffold for a functioning chain. The CLI integration test checks this startup boundary; payment and consensus tests arrive with their implementations.
 
 ## Dependencies and licenses
 
