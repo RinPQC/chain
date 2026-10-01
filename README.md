@@ -137,7 +137,7 @@ The selected version's maturity, API, license, and relevant security limitations
 
 ## Integration baseline
 
-[ADR 0001 — Malachite baseline for M1](docs/decisions/0001-malachite-baseline.md) proposes the pinned engine revision, application interface, recovery obligations, and PQ integration boundaries. Status and evidence limits are recorded in the ADR.
+[ADR 0001 — Malachite baseline for M1](docs/decisions/0001-malachite-baseline.md) records the pinned engine revision, application interface, recovery obligations, and PQ integration boundaries. Status and evidence limits are recorded in the ADR.
 
 ## Implementation workflow
 
@@ -145,4 +145,4 @@ Each milestone should be broken into bounded issues linked to its completion cri
 
 Architectural decisions remain explicit records in the research repository. Completing a PoC task does not silently approve production economics, security assumptions, or features outside this scope.
 
-The immediate next step is to select the pinned Malachite integration baseline within this PoC scope. This document itself introduces no implementation.
+The integration baseline is recorded in ADR 0001. [M1 payment, genesis and block semantics](docs/specs/m1-payment-semantics.md) specifies the proposed application contract and deterministic vectors for issue #4. These documents introduce no running implementation.
