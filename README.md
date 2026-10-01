@@ -2,13 +2,13 @@
 
 A Rust payment-chain proof of concept built around **Malachite**, progressing from a working consensus network to post-quantum cryptography.
 
-**Current stage: M1 identities and genesis.** This README defines two implementation milestones and their completion criteria. It does not claim that either milestone is implemented, that the network is production-ready, or that its security has been independently audited.
+**Current stage: M1 payment execution.** This README defines two implementation milestones and their completion criteria. It does not claim that either milestone is implemented, that the network is production-ready, or that its security has been independently audited.
 
 This repository hosts the node implementation, integration tests, development-network configuration, and implementation documentation. Research, requirements, and architectural decision records live in [RinPQC/consensus](https://github.com/RinPQC/consensus).
 
 ## Build and run the scaffold
 
-See [build instructions](docs/development/build.md) for prerequisites, `just setup` and the shared local/CI gate `just check`. The executable supports key generation, genesis/configuration validation and local initialization. Follow the [local identity walkthrough](docs/development/identities.md). Node startup and payment processing are not implemented yet.
+See [build instructions](docs/development/build.md) for prerequisites, `just setup` and the shared local/CI gate `just check`. The executable supports key generation, genesis/configuration validation and local initialization. Follow the [local identity walkthrough](docs/development/identities.md). The [payment executor](docs/development/payments.md) validates transfers and blocks in memory. Network startup, persistent settlement and payment RPC are not implemented yet.
 
 ## Objective
 

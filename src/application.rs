@@ -1,4 +1,5 @@
-//! Canonical payment bytes; balance and nonce execution belongs to issue #7.
+//! Canonical payment bytes and deterministic speculative execution.
+pub mod execution;
 use crate::crypto::{hash, Error, Id, Result};
 
 pub const VERSION: u16 = 1;
