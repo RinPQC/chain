@@ -291,3 +291,32 @@ async fn restream_preserves_foreign_authorship_and_authenticates_own_reproposal(
 		.unwrap()
 		.is_invalid());
 }
+
+#[test]
+fn payment_gossip_has_exact_length_and_rejects_retired_streams() {
+	use super::engine::app::{
+		streaming::StreamContent,
+		types::streaming::{StreamId, StreamMessage},
+	};
+	let codec = Codec { chain: [7; 32] };
+	let msg = StreamMessage::new(
+		StreamId::new(bytes::Bytes::from_static(b"retry-1")),
+		0,
+		StreamContent::Data(Gossip::Payment([0; 180])),
+	);
+	let raw = codec.encode(&msg).unwrap();
+	let decoded: StreamMessage<Gossip> = codec.decode(raw.clone()).unwrap();
+	assert_eq!(decoded, msg);
+	let decode =
+		|raw: bytes::Bytes| -> std::io::Result<StreamMessage<Gossip>> { codec.decode(raw) };
+	let mut short = raw.to_vec();
+	short.pop();
+	assert!(decode(short.into()).is_err());
+	let mut long = raw.to_vec();
+	long.push(0);
+	assert!(decode(long.into()).is_err());
+	let retired = codec.pack(4, &msg).unwrap();
+	assert!(decode(retired).is_err());
+	let wrong_chain: std::io::Result<StreamMessage<Gossip>> = Codec { chain: [8; 32] }.decode(raw);
+	assert!(wrong_chain.is_err());
+}

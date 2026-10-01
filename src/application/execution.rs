@@ -314,6 +314,29 @@ impl Ledger {
 		next.height = height;
 		Ok((next, decoded, outcomes))
 	}
+	/// Select at most 4096 candidates in caller order, respecting both block limits.
+	/// Invalid candidates are skipped against an isolated evolving snapshot.
+	pub fn assemble_block<'a>(
+		&self,
+		candidates: impl IntoIterator<Item = &'a SignedTransfer>,
+	) -> Result<ValidatedBlock, ExecutionError> {
+		let mut working = self.clone();
+		let mut selected = Vec::new();
+		for signed in candidates.into_iter().take(4096) {
+			if check_limits(selected.len() + 1, self.max_block_bytes, self.max_transactions)
+				.is_err()
+			{
+				break;
+			}
+			if let Ok(effect) = working.validate_transfer(signed) {
+				working.accounts.insert(effect.sender, effect.sender_after);
+				working.accounts.insert(effect.recipient, effect.recipient_after);
+				selected.push(signed.clone());
+			}
+		}
+		// Reuse the complete execution path, including supply and commitment checks.
+		self.prepare_block(selected)
+	}
 	pub fn prepare_block(
 		&self,
 		transfers: Vec<SignedTransfer>,

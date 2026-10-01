@@ -138,7 +138,14 @@ pub struct Part {
 	pub block: Vec<u8>,
 	pub signature: [u8; 64],
 }
-impl core::ProposalPart<Context> for Part {
+// The pinned channel host forwards opaque application parts. Payments receive no
+// ProposedValue response and never enter the consensus voting state machine.
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
+pub enum Gossip {
+	Proposal(Box<Part>),
+	Payment([u8; crate::application::SIGNED_TRANSFER_LEN]),
+}
+impl core::ProposalPart<Context> for Gossip {
 	fn is_first(&self) -> bool {
 		true
 	}
@@ -207,7 +214,7 @@ pub struct Context;
 impl core::Context for Context {
 	type Address = Address;
 	type Height = Height;
-	type ProposalPart = Part;
+	type ProposalPart = Gossip;
 	type Proposal = Proposal;
 	type Validator = Validator;
 	type ValidatorSet = Validators;

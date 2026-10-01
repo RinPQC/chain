@@ -1,6 +1,6 @@
 # Running the M1 consensus node
 
-The node now runs the pinned Malachite engine with four fixed, equal-power validators, classical Ed25519 signatures and authenticated TCP/libp2p connections. Validated payment blocks and empty blocks use the same proposal, vote, certificate and durable-commit path. There is no mempool, payment RPC or historical synchronization yet.
+The node now runs the pinned Malachite engine with four fixed, equal-power validators, classical Ed25519 signatures and authenticated TCP/libp2p connections. Validated payment blocks and empty blocks use the same proposal, vote, certificate and durable-commit path. A bounded local payment queue now gossips transactions between validators. Payment RPC and historical synchronization remain upcoming work.
 
 ## First local network
 
@@ -70,9 +70,25 @@ For a restart, reuse the same files and run `start` again; do not rerun keygen o
 
 ## Payments in this stage
 
-`start <config> [signed-payment-batch]` accepts an optional local fixture file containing concatenated canonical 180-byte signed transfers, up to 4096 transfers. It validates the batch against the recovered parent before starting. A proposer includes remaining fixture payments; already committed transaction IDs are omitted after restart. Supply the same valid fixture to the participating proposers for repeatable demonstrations. This input is not a queue, network submission endpoint, wallet, or replacement for #10/#12.
+### Payment queue
 
-The four-process integration test generates fresh keys, signs a 30-unit payment from a 100-unit account, verifies the recipient credit and sender nonce, follows it with empty blocks, and restarts without a second debit:
+`start <config> [signed-payment-batch]` optionally admits a file of concatenated canonical 180-byte signed transfers (at most 4096) against the recovered committed state. Supply it to **one** participating node; queued payments are relayed to the other validators. Invalid local input stops startup with an explicit error. Already finalized IDs are omitted on restart after signature verification. This is a development input, not a wallet or a live submission endpoint; RPC/CLI submission is #12.
+
+Local policy is implemented in `PaymentQueue`, separately from block validity:
+
+- Capacity is 4096 entries (737,280 canonical payment bytes plus bounded map overhead). Full queues return `QUEUE_FULL`; no replacement, age eviction or fee priority is implemented.
+- Only the committed next nonce is admitted. Future nonces return `NONCE_TOO_HIGH`; a different valid instruction for an occupied sender/nonce returns `NONCE_CONFLICT`. A valid duplicate returns the existing ID, including when full. Signatures are checked before recognizing duplicates because IDs exclude the signature.
+- Individual inputs exceeding 180 bytes return `REQUEST_TOO_LARGE`; malformed or invalid payments retain the executor's explicit errors. These admission errors do not alter consensus validity.
+- Proposal selection uses ascending sender-key order, validates against an evolving isolated snapshot, skips invalid candidates, and obeys both genesis transaction-count and encoded-byte limits. Work is bounded to 4096 candidates. The resulting block passes the ordinary full execution path. Selection does not remove entries, so failed rounds cannot discard pending payments.
+- After each durable commit, revalidation removes finalized, conflicting and otherwise invalid entries. The pool is volatile: restart starts empty and re-admits any supplied file. Clients must retain unfinalized payments for retry; pending admission is not a receipt or a finality guarantee.
+
+For the fixed M1 network, a typed envelope multiplexes payments and authenticated proposal parts over the existing Malachite application-part gossip channel. The host returns no proposed value for a payment. Payment admission therefore never authorizes a vote, and proposal/block validation remains mandatory. The pinned engine forwards these opaque parts to the host without interpreting their contents.
+
+Each node retries one queued entry every 250 ms in rotating sender order. A fresh stream ID permits retries after connection establishment or earlier rejection; the queue deduplicates by the signed instruction. A full outbound channel defers the retry without waiting. Inbound payment signature checks are limited to 32 messages per one-second window globally; excess messages are dropped and may be retried. Payment payloads are fixed at 180 bytes. No unbounded retry or duplicate index is retained by the application.
+
+These are conservative devnet limits: a full pool takes about 17 minutes to traverse at this relay rate. The shared transport and upstream actor queues still consume resources before host admission, and malicious peers can consume the global ingress allowance. This is not transport-level DoS isolation, a fairness guarantee, or a throughput benchmark. Dedicated transaction transport and rate tuning require measured follow-up work before broader deployment.
+
+The four-process integration test generates fresh keys, signs a 30-unit payment from a 100-unit account, supplies it only to the fourth scheduled proposer, verifies inclusion by height two on all nodes, checks the recipient credit and sender nonce, follows it with empty blocks, and restarts without a second debit:
 
 ```sh
 cargo test -p rinpqc-node --locked --test consensus_network -- --nocapture
@@ -91,7 +107,7 @@ Consensus signatures use the following domains, followed by the 32-byte chain ID
 
 Vote extensions are disabled. Proposal POL metadata is authenticated; the earlier generic `ConsensusSigner` primitive is not used by the running adapter because its preimage lacks that metadata. Validator proofs sign the pinned upstream `PoV` preimage binding validator public key and transport peer ID; this inner proof is intentionally network-agnostic. Transport keys remain separate from validator keys. All of these paths are classical M1 cryptography, not PQ security.
 
-Network/WAL codecs wrap pinned Borsh representations in `RINPQC-NET || 0x00 || 0x01 || chain_id || type_tag`, with a 2 MiB envelope limit, exact consumption and no accepted trailing bytes. Tags 1–8 identify parts, signed consensus messages, liveness messages, streams, proposed values, polka certificates, commit certificates and validator proofs. Application block/transaction encodings remain unchanged. Changing these encodings or the upstream Borsh representations requires an explicit compatibility/version review.
+Network/WAL codecs wrap pinned Borsh representations in `RINPQC-NET || 0x00 || 0x01 || chain_id || type_tag`, with a 2 MiB envelope limit, exact consumption and no accepted trailing bytes. Tags 1–3 and 5–8 retain their existing durable/consensus meanings. Tag 4 (old proposal-only streams) is retired and rejected. Tag 9 encodes application gossip streams; tag 10 encodes their typed parts (proposal or fixed-size payment). All peers must use this version together; mixed old/new transport versions cannot exchange proposal payloads. Existing payment encodings, signatures and durable proposal records are unchanged; no automatic reset or migration of inconsistent recovery files is performed. Application block/transaction encodings remain unchanged. Changing these encodings or the upstream Borsh representations requires an explicit compatibility/version review.
 
 Historical sync is disabled, and its required network codec methods reject every payload. #11 must implement authenticated catch-up; retaining blocks and certificates does not by itself provide it.
 
@@ -113,4 +129,4 @@ Payloads, certificates and signing history are retained without pruning, and rec
 
 `just check` includes real subprocess/loopback tests for equal finalized state, payments exactly once, empty blocks, coordinated restart, replacement of a missing initial proposer, no finalization with two validators, and active-height WAL restart. Unit tests cover duplicate/conflicting/regressed signatures, chain/type/POL binding, invalid proposals, quorum/duplicate signers, interrupted certified commits and bounded codec rejection.
 
-This completes the initial consensus integration boundary. The network is disposable and still lacks mempool admission (#10), historical catch-up (#11), payment RPC/CLI (#12), the full devnet tooling (#13) and the wider fault/acceptance suite (#14). Test coverage is evidence for these traces, not a proof of consensus correctness or a production-readiness claim.
+This completes the initial consensus integration boundary. The network is disposable and still lacks historical catch-up (#11), payment RPC/CLI (#12), the full devnet tooling (#13) and the wider fault/acceptance suite (#14). Test coverage is evidence for these traces, not a proof of consensus correctness or a production-readiness claim.

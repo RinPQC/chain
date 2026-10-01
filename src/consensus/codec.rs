@@ -63,9 +63,11 @@ macro_rules! codec {
 	};
 }
 codec!(Part, 1);
+codec!(Gossip, 10);
 codec!(SignedConsensusMsg<Context>, 2);
 codec!(LivenessMsg<Context>, 3);
-codec!(StreamMessage<Part>, 4);
+// Tag 4 is retired; old proposal-only streams must not decode as application gossip.
+codec!(StreamMessage<Gossip>, 9);
 codec!(ProposedValue<Context>, 5);
 codec!(PolkaCertificate<Context>, 6);
 codec!(CommitCertificate<Context>, 7);
