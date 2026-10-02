@@ -119,3 +119,16 @@ fn cli_generates_only_public_output_and_validates_local_setup() {
 		);
 	}
 }
+
+#[test]
+fn rpc_is_opt_in_and_restricted_to_a_separate_loopback_port() {
+	let (tmp, _, text) = setup();
+	let path = tmp.path().join("node.toml");
+	assert!(NodeConfig::load(&path).unwrap().rpc_listen.is_none());
+	for address in ["0.0.0.0:32000", "192.0.2.1:32000", "127.0.0.1:0", "127.0.0.1:31001"] {
+		fs::write(&path, format!("{text}rpc_listen = '{address}'\n")).unwrap();
+		assert!(NodeConfig::load(&path).is_err(), "accepted {address}");
+	}
+	fs::write(&path, format!("{text}rpc_listen = '127.0.0.1:32000'\n")).unwrap();
+	assert_eq!(NodeConfig::load(&path).unwrap().rpc_listen.unwrap().port(), 32000);
+}

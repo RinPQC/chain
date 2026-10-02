@@ -21,6 +21,7 @@ struct Network {
 	tx: SignedTransfer,
 	first: usize,
 	submitter: usize,
+	rpc: Vec<std::net::SocketAddr>,
 }
 struct Running {
 	children: Vec<(usize, Child)>,
@@ -56,6 +57,7 @@ impl Network {
 			validators: ids,
 			accounts: vec![(sender.public_key(), 100)],
 		};
+		save_key(&dir.path().join("sender.key"), &sender).unwrap();
 		let tx = sender
 			.sign_transfer(
 				Transfer {
@@ -70,12 +72,13 @@ impl Network {
 			.unwrap();
 		fs::write(dir.path().join("genesis.json"), genesis.to_json().unwrap()).unwrap();
 		fs::write(dir.path().join("payments.bin"), tx.encode()).unwrap();
-		let listeners: Vec<_> = (0..4).map(|_| TcpListener::bind("127.0.0.1:0").unwrap()).collect();
+		let listeners: Vec<_> = (0..8).map(|_| TcpListener::bind("127.0.0.1:0").unwrap()).collect();
 		let ports: Vec<_> = listeners.iter().map(|l| l.local_addr().unwrap()).collect();
 		for i in 0..4 {
 			save_key(&dir.path().join(format!("validator{i}.key")), &validators[i]).unwrap();
 			save_key(&dir.path().join(format!("network{i}.key")), &networks[i]).unwrap();
 			let mut text=format!("version=1\ngenesis='genesis.json'\nexpected_chain_id='{}'\nvalidator_key='validator{i}.key'\nnetwork_key='network{i}.key'\ndata_dir='node{i}'\nlisten='{}'\n",hex::encode(genesis.chain_id().unwrap()),ports[i]);
+			text += &format!("rpc_listen='{}'\n", ports[i + 4]);
 			for j in 0..4 {
 				if i != j {
 					text += &format!(
@@ -94,7 +97,7 @@ impl Network {
 				.unwrap();
 			assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
 		}
-		Self { dir, genesis, tx, first, submitter }
+		Self { dir, genesis, tx, first, submitter, rpc: ports[4..].to_vec() }
 	}
 	fn start(&self, excluded: Option<usize>, payments: bool) -> Running {
 		let mut children = Vec::new();
@@ -375,4 +378,79 @@ fn fresh_and_returning_validator_resume_verified_history_while_peers_keep_produc
 		"validator did not resume signing after catch-up: {}",
 		fs::read_to_string(network.dir.path().join(format!("out{late}.log"))).unwrap()
 	);
+}
+
+fn cli_json(args: &[&str]) -> serde_json::Value {
+	let output = Command::new(env!("CARGO_BIN_EXE_rinpqc-node")).args(args).output().unwrap();
+	assert!(
+		output.status.success(),
+		"{:?}: {} {}",
+		args,
+		String::from_utf8_lossy(&output.stdout),
+		String::from_utf8_lossy(&output.stderr)
+	);
+	serde_json::from_slice(&output.stdout).unwrap()
+}
+#[test]
+fn payment_cli_submits_finalizes_and_retries_without_a_second_debit() {
+	let network = Network::new();
+	let key = network.dir.path().join("sender.key");
+	let genesis = network.dir.path().join("genesis.json");
+	let signed = network.dir.path().join("signed.bin");
+	let recipient = hex::encode(network.tx.transfer.recipient);
+	let sender = hex::encode(network.tx.transfer.sender);
+	let chain = hex::encode(network.genesis.chain_id().unwrap());
+	let address = network.rpc[network.submitter].to_string();
+	let result = cli_json(&[
+		"payment-sign",
+		key.to_str().unwrap(),
+		genesis.to_str().unwrap(),
+		&recipient,
+		"30",
+		"0",
+		signed.to_str().unwrap(),
+	]);
+	let id = result["tx_id"].as_str().unwrap();
+	assert_eq!(fs::read(&signed).unwrap(), network.tx.encode());
+	let mut nodes = network.start(None, false);
+	nodes.wait(1);
+	assert_eq!(cli_json(&["account", &address, &chain, &sender])["result"]["balance"], "100");
+	assert_eq!(cli_json(&["transaction", &address, &chain, id])["result"]["status"], "unknown");
+	for _ in 0..2 {
+		let result = cli_json(&["payment-submit", &address, signed.to_str().unwrap()]);
+		assert_eq!(result["result"]["tx_id"], id);
+		assert!(matches!(result["result"]["status"].as_str(), Some("pending" | "finalized")));
+	}
+	let until = Instant::now() + Duration::from_secs(40);
+	loop {
+		if cli_json(&["transaction", &address, &chain, id])["result"]["status"] == "finalized" {
+			break;
+		}
+		assert!(Instant::now() < until, "RPC payment did not finalize");
+		thread::sleep(Duration::from_millis(500));
+	}
+	assert_eq!(
+		cli_json(&["payment-submit", &address, signed.to_str().unwrap()])["result"]["status"],
+		"finalized"
+	);
+	assert_eq!(cli_json(&["account", &address, &chain, &sender])["result"]["balance"], "70");
+	assert_eq!(cli_json(&["account", &address, &chain, &sender])["result"]["next_nonce"], "1");
+	assert_eq!(cli_json(&["account", &address, &chain, &recipient])["result"]["balance"], "30");
+	assert_ne!(cli_json(&["chain-status", &address, &chain])["result"]["height"], "0");
+	stop_one(&mut nodes, network.submitter);
+	nodes.children.push((network.submitter, network.start_node(network.submitter, false)));
+	nodes.wait(4);
+	assert_eq!(
+		cli_json(&["payment-submit", &address, signed.to_str().unwrap()])["result"]["status"],
+		"finalized"
+	);
+	assert_eq!(cli_json(&["account", &address, &chain, &sender])["result"]["balance"], "70");
+	stop_one(&mut nodes, network.submitter);
+	let failed = Command::new(env!("CARGO_BIN_EXE_rinpqc-node"))
+		.args(["chain-status", &address, &chain])
+		.output()
+		.unwrap();
+	assert!(!failed.status.success());
+	let error: serde_json::Value = serde_json::from_slice(&failed.stdout).unwrap();
+	assert_eq!(error["error"]["code"], "RPC_UNAVAILABLE");
 }

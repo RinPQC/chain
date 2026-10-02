@@ -1,10 +1,10 @@
 # Running the M1 consensus node
 
-The node now runs the pinned Malachite engine with four fixed, equal-power validators, classical Ed25519 signatures and authenticated TCP/libp2p connections. Validated payment blocks and empty blocks use the same proposal, vote, certificate and durable-commit path. A bounded local payment queue now gossips transactions between validators. Validators can [synchronize verified history](synchronization.md); payment RPC remains upcoming work.
+The node now runs the pinned Malachite engine with four fixed, equal-power validators, classical Ed25519 signatures and authenticated TCP/libp2p connections. Validated payment blocks and empty blocks use the same proposal, vote, certificate and durable-commit path. A bounded local payment queue now gossips transactions between validators. Validators can [synchronize verified history](synchronization.md); [local payment RPC and CLI](rpc.md) are available.
 
 ## First local network
 
-Install the [build prerequisites](build.md), then run this Bash setup from the repository root. It generates fresh keys and a disposable genesis outside the repository. Ports 31001–31004 must be free.
+Install the [build prerequisites](build.md), then run this Bash setup from the repository root. It generates fresh keys and a disposable genesis outside the repository. Consensus ports 31001–31004 and local RPC ports 32001–32004 must be free.
 
 ```bash
 cargo build --locked
@@ -28,6 +28,7 @@ validator_key = "validator-$index.key"
 network_key = "network-$index.key"
 data_dir = "node-$index"
 listen = "127.0.0.1:$((31001 + index))"
+rpc_listen = "127.0.0.1:$((32001 + index))"
 TOML
   for peer in 0 1 2 3; do
     if [ "$peer" != "$index" ]; then
@@ -66,13 +67,13 @@ wait "${node_pids[@]}"
 
 For a restart, reuse the same files and run `start` again; do not rerun keygen or delete recovery data. A returning validator now downloads and verifies missed history while peers keep producing blocks. See the [synchronization and signing-readiness contract](synchronization.md). Missing or inconsistent recovery files still refuse startup; never reset a used validator's WAL or copy only its balances.
 
-`RUST_LOG=info` enables upstream diagnostic logs. `COMMITTED` is emitted only after the application store confirms durability. These logs are the initial operational interface; stable metrics and payment RPC are later work.
+`RUST_LOG=info` enables upstream diagnostic logs. `COMMITTED` is emitted only after the application store confirms durability. Logs and [local RPC](rpc.md) provide the initial operational interfaces; stable metrics are later work.
 
 ## Payments in this stage
 
 ### Payment queue
 
-`start <config> [signed-payment-batch]` optionally admits a file of concatenated canonical 180-byte signed transfers (at most 4096) against the recovered committed state. Supply it to **one** participating node; queued payments are relayed to the other validators. Invalid local input stops startup with an explicit error. Already finalized IDs are omitted on restart after signature verification. This is a development input, not a wallet or a live submission endpoint; RPC/CLI submission is #12.
+`start <config> [signed-payment-batch]` optionally admits a file of concatenated canonical 180-byte signed transfers (at most 4096) against the recovered committed state. Supply it to **one** participating node; queued payments are relayed to the other validators. Invalid local input stops startup with an explicit error. Already finalized IDs are omitted on restart after signature verification. This is a development input, not a wallet or a live submission endpoint; use [payment RPC/CLI](rpc.md) for live submission.
 
 Local policy is implemented in `PaymentQueue`, separately from block validity:
 
@@ -129,4 +130,4 @@ Payloads, certificates and signing history are retained without pruning, and rec
 
 `just check` includes real subprocess/loopback tests for equal finalized state, payments exactly once, empty blocks, coordinated restart, replacement of a missing initial proposer, no finalization with two validators, and active-height WAL restart. Unit tests cover duplicate/conflicting/regressed signatures, chain/type/POL binding, invalid proposals, quorum/duplicate signers, interrupted certified commits and bounded codec rejection.
 
-This completes the initial consensus integration boundary. The network is disposable and still lacks payment RPC/CLI (#12), the full devnet tooling (#13) and the wider fault/acceptance suite (#14). Test coverage is evidence for these traces, not a proof of consensus correctness or a production-readiness claim.
+This completes the initial consensus integration boundary. The network is disposable and still lacks the full devnet tooling (#13) and the wider fault/acceptance suite (#14). Test coverage is evidence for these traces, not a proof of consensus correctness or a production-readiness claim.

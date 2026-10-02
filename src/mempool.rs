@@ -27,6 +27,9 @@ pub struct PaymentQueue {
 	entries: BTreeMap<Id, SignedTransfer>,
 }
 impl PaymentQueue {
+	pub fn contains(&self, id: &Id) -> bool {
+		self.entries.values().any(|payment| payment.transfer.id() == *id)
+	}
 	pub fn len(&self) -> usize {
 		self.entries.len()
 	}

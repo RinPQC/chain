@@ -303,6 +303,14 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 			pending.admit(store.ledger()?, &payment.encode())?;
 		}
 	}
+	let (rpc_calls, mut rpc_requests) = crate::rpc::channel();
+	let rpc_server = if let Some(address) = config.rpc_listen {
+		Some(crate::rpc::Server::bind(address, rpc_calls.clone()).await?)
+	} else {
+		None
+	};
+	let mut rpc_window = std::time::Instant::now();
+	let mut rpc_remaining = 16u32;
 	let (mut channels, mut handle) = EngineBuilder::new(Context, engine_config)
 		.with_default_wal(WalContext::new(dir.join("consensus.wal"), codec.clone()))
 		.with_default_network(NetworkContext::new(identity, codec.clone()))
@@ -325,7 +333,22 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 	let result = async {
 		loop {
 			let msg = tokio::select! {
+				call = rpc_requests.recv(), if rpc_server.is_some() => {
+					if let Some(call) = call {
+						if call.reply.is_closed() { continue; }
+						if rpc_window.elapsed() >= Duration::from_secs(1) { rpc_window = std::time::Instant::now(); rpc_remaining = 16; }
+						let response = if rpc_remaining == 0 {
+							crate::rpc::Response::error("RATE_LIMITED", "Retry after one second using the identical signed request.")
+						} else {
+							rpc_remaining -= 1;
+							crate::rpc::handle(call.request, &store, &mut pending)?
+						};
+						let _ = call.reply.send(response);
+					}
+					continue;
+				},
 				_ = gossip_tick.tick() => {
+					ensure!(!rpc_server.as_ref().is_some_and(|s| s.is_finished()), "RPC listener stopped");
 					if let Some((key, payment)) = pending.next_gossip(gossip_cursor) {
 						// A fresh stream ID permits retry after peers connect or previously reject it.
 						gossip_sequence = gossip_sequence.checked_add(1).ok_or_else(|| eyre!("gossip counter exhausted"))?;
