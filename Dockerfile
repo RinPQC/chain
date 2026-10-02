@@ -7,7 +7,7 @@ COPY vendor ./vendor
 RUN cargo build --release --locked -p rinpqc-node
 
 FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 iptables && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 rinpqc && useradd --uid 10001 --gid 10001 --no-create-home rinpqc \
     && mkdir -p /state /devnet/node0 /devnet/node1 /devnet/node2 /devnet/node3 \
     && chown -R 10001:10001 /state /devnet && chmod 700 /state /devnet/node*

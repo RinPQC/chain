@@ -37,6 +37,9 @@ case "${1:-help}" in
       fi
     done
     ;;
+  split) python3 scripts/devnet/faults.py "${2:?Specify 2-2 or 3-1}" ;;
+  heal) python3 scripts/devnet/faults.py heal ;;
+  fault-status) python3 scripts/devnet/faults.py status ;;
   status)
     for service in node0 node1 node2 node3; do
       echo "$service"
@@ -51,6 +54,6 @@ case "${1:-help}" in
     echo "Deleting disposable project $COMPOSE_PROJECT_NAME: containers, network and volumes ${COMPOSE_PROJECT_NAME}_node{0,1,2,3}. Keys, balances and history will be lost."
     "${compose[@]}" down --volumes
     ;;
-  help|-h|--help) echo 'Usage: scripts/devnet.sh up|down|fresh|first-proposer|status|logs [node]|stop node|start node|restart node|partition nodes...|reconnect nodes...|rpc node method [ID]|pay amount|retry signed_file|reset --discard-test-state' ;;
+  help|-h|--help) echo 'Usage: scripts/devnet.sh up|down|fresh|first-proposer|status|logs [node]|stop node|start node|restart node|partition nodes...|reconnect nodes...|split 2-2|split 3-1|heal|fault-status|rpc node method [ID]|pay amount|retry signed_file|reset --discard-test-state' ;;
   *) echo "Unknown devnet command: $1" >&2; exit 2 ;;
 esac

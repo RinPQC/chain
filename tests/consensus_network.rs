@@ -479,3 +479,133 @@ fn payment_cli_submits_finalizes_and_retries_without_a_second_debit() {
 	let error: serde_json::Value = serde_json::from_slice(&failed.stdout).unwrap();
 	assert_eq!(error["error"]["code"], "RPC_UNAVAILABLE");
 }
+
+fn submit_raw(network: &Network, index: usize, signed: &SignedTransfer) -> serde_json::Value {
+	use std::io::{BufRead, BufReader, Write};
+	let mut stream = std::net::TcpStream::connect(network.rpc[index]).unwrap();
+	stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+	stream.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
+	let request = serde_json::json!({"version": 1,
+		"chain_id": hex::encode(network.genesis.chain_id().unwrap()),
+		"operation": {"method": "submit", "signed_transfer": hex::encode(signed.encode())}});
+	writeln!(stream, "{request}").unwrap();
+	let mut response = String::new();
+	BufReader::new(stream).read_line(&mut response).unwrap();
+	serde_json::from_str(&response).unwrap()
+}
+
+#[test]
+fn invalid_payments_and_concurrent_double_spend_have_one_durable_winner() {
+	let network = Network::new();
+	let key = rinpqc_node::infrastructure::load_key(
+		&network.dir.path().join("sender.key"),
+		KeyRole::Transaction,
+	)
+	.unwrap();
+	let chain = network.genesis.chain_id().unwrap();
+	let sign = |recipient, amount| {
+		key.sign_transfer(
+			Transfer { chain_id: chain, sender: key.public_key(), recipient, amount, nonce: 0 },
+			&chain,
+		)
+		.unwrap()
+	};
+	let a = sign(network.tx.transfer.recipient, 80);
+	let b = sign(SecretKey::generate(KeyRole::Transaction).unwrap().public_key(), 80);
+	let insufficient = sign(a.transfer.recipient, 101);
+	let mut bad = a.clone();
+	bad.signature[0] ^= 1;
+	let mut nodes = network.start(None, false);
+	nodes.wait(1);
+	assert_eq!(submit_raw(&network, 0, &bad)["error"]["code"], "INVALID_SIGNATURE_OR_CHAIN");
+	assert_eq!(submit_raw(&network, 0, &insufficient)["error"]["code"], "INSUFFICIENT_FUNDS");
+	let barrier = std::sync::Barrier::new(2);
+	let responses = thread::scope(|scope| {
+		let left = scope.spawn(|| {
+			barrier.wait();
+			submit_raw(&network, 0, &a)
+		});
+		let right = scope.spawn(|| {
+			barrier.wait();
+			submit_raw(&network, 1, &b)
+		});
+		[left.join().unwrap(), right.join().unwrap()]
+	});
+	assert!(responses.iter().any(|r| r.get("result").is_some()), "{responses:?}");
+	for response in &responses {
+		if let Some(error) = response.get("error") {
+			assert!(
+				matches!(error["code"].as_str(), Some("NONCE_CONFLICT" | "NONCE_TOO_LOW")),
+				"{response}"
+			);
+		}
+	}
+	let chain_hex = hex::encode(chain);
+	let ids = [hex::encode(a.transfer.id()), hex::encode(b.transfer.id())];
+	let until = Instant::now() + Duration::from_secs(60);
+	let winner = loop {
+		let outcomes: Vec<Vec<bool>> = network
+			.rpc
+			.iter()
+			.map(|address| {
+				ids.iter()
+					.map(|id| {
+						cli_json(&["transaction", &address.to_string(), &chain_hex, id])["result"]
+							["status"] == "finalized"
+					})
+					.collect()
+			})
+			.collect();
+		assert!(outcomes.iter().all(|pair| !pair.iter().all(|v| *v)), "both spends finalized");
+		if outcomes.iter().all(|pair| pair == &outcomes[0]) && outcomes[0].iter().any(|v| *v) {
+			break usize::from(outcomes[0][1]);
+		}
+		assert!(Instant::now() < until, "double-spend race did not finalize: {outcomes:?}");
+		thread::sleep(Duration::from_millis(250));
+	};
+	let payments = [a, b];
+	for index in 0..4 {
+		assert_eq!(submit_raw(&network, index, &payments[winner])["result"]["status"], "finalized");
+		assert_eq!(
+			submit_raw(&network, index, &payments[1 - winner])["error"]["code"],
+			"NONCE_TOO_LOW"
+		);
+		stop_one(&mut nodes, index);
+	}
+	let check = || {
+		let stores: Vec<_> = (0..4)
+			.map(|i| {
+				Store::open(
+					&network.dir.path().join(format!("node{i}/application.redb")),
+					&network.genesis,
+				)
+				.unwrap()
+			})
+			.collect();
+		let height = stores.iter().map(|s| s.ledger().unwrap().height()).min().unwrap();
+		for store in &stores {
+			let ledger = store.ledger().unwrap();
+			assert_eq!(ledger.account(&key.public_key()).balance, 20);
+			assert_eq!(ledger.account(&key.public_key()).next_nonce, 1);
+			assert_eq!(ledger.account(&payments[winner].transfer.recipient).balance, 80);
+			assert_eq!(ledger.account(&payments[1 - winner].transfer.recipient).balance, 0);
+			assert_eq!(
+				store.receipt(&payments[winner].transfer.id()).unwrap(),
+				stores[0].receipt(&payments[winner].transfer.id()).unwrap()
+			);
+			assert!(store.receipt(&payments[1 - winner].transfer.id()).unwrap().is_none());
+			assert!(store.receipt(&insufficient.transfer.id()).unwrap().is_none());
+			for h in 1..=height {
+				assert_eq!(store.block(h).unwrap(), stores[0].block(h).unwrap());
+			}
+		}
+		height
+	};
+	let height = check();
+	let mut nodes = network.start(None, false);
+	nodes.wait(height + 2);
+	for index in 0..4 {
+		stop_one(&mut nodes, index);
+	}
+	check();
+}
