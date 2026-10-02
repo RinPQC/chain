@@ -10,3 +10,7 @@ pub mod genesis;
 pub mod storage;
 
 pub mod mempool;
+
+pub mod rpc;
+
+pub mod payment_cli;

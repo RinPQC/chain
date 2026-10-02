@@ -13,7 +13,7 @@ The application now validates signed payments and ordered blocks against an immu
 
 The executor follows the [specified rejection order](../specs/m1-payment-semantics.md). It uses checked subtraction/addition for balances and nonce increments. Supply is verified against the original genesis total after every candidate block. There are no fees, minting or burns.
 
-Any failure rejects the complete block and returns the first failing transaction index and stable error code. An invalid later encoding does not mask an earlier financial failure. A duplicate or conflicting sender/nonce inside a block rejects the block; it is not silently skipped. A repeated valid submission against the same parent produces the same candidate, while replay against its resulting state is rejected. The application store implements durable repeated-decision idempotence and receipt lookup. RPC exposure remains separate work.
+Any failure rejects the complete block and returns the first failing transaction index and stable error code. An invalid later encoding does not mask an earlier financial failure. A duplicate or conflicting sender/nonce inside a block rejects the block; it is not silently skipped. A repeated valid submission against the same parent produces the same candidate, while replay against its resulting state is rejected. The application store implements durable repeated-decision idempotence and receipt lookup. The [RPC adapter](rpc.md) exposes admission and durable receipts separately from speculative execution.
 
 ## Determinism and limits
 

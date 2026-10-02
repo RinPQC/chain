@@ -93,6 +93,7 @@ struct ConfigFile {
 	network_key: PathBuf,
 	data_dir: PathBuf,
 	listen: SocketAddr,
+	rpc_listen: Option<SocketAddr>,
 	peers: Vec<Peer>,
 }
 #[derive(Deserialize)]
@@ -108,6 +109,7 @@ pub struct NodeConfig {
 	pub network: SecretKey,
 	pub data_dir: PathBuf,
 	pub listen: SocketAddr,
+	pub rpc_listen: Option<SocketAddr>,
 	pub peers: Vec<(SocketAddr, Id)>,
 }
 impl NodeConfig {
@@ -136,6 +138,9 @@ impl NodeConfig {
 		if f.listen.port() == 0 || f.listen.ip().is_multicast() || f.peers.len() > 64 {
 			return Err(Error::Config("invalid network configuration"));
 		}
+		if f.rpc_listen.is_some_and(|a| !a.ip().is_loopback() || a.port() == 0 || a == f.listen) {
+			return Err(Error::Config("RPC requires a separate nonzero loopback address"));
+		}
 		let mut peers = Vec::new();
 		let mut addresses = BTreeSet::new();
 		let mut keys = BTreeSet::new();
@@ -160,6 +165,7 @@ impl NodeConfig {
 			network,
 			data_dir: parent.join(f.data_dir),
 			listen: f.listen,
+			rpc_listen: f.rpc_listen,
 			peers,
 		};
 		config.check_directory()?;
