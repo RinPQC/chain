@@ -291,7 +291,12 @@ fn stop_one(nodes: &mut Running, index: usize) {
 			assert!(status.success(), "node {index} failed planned shutdown: {status}");
 			break;
 		}
-		assert!(Instant::now() < until, "node {index} did not finish planned shutdown");
+		assert!(
+			Instant::now() < until,
+			"node {index} did not finish planned shutdown: {}\n{}",
+			fs::read_to_string(nodes.dir.join(format!("out{index}.log"))).unwrap(),
+			fs::read_to_string(nodes.dir.join(format!("err{index}.log"))).unwrap()
+		);
 		thread::sleep(Duration::from_millis(10));
 	}
 	nodes.children.remove(position);

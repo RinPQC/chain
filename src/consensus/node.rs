@@ -330,6 +330,9 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 	let mut gossip_sequence = 0u64;
 	let mut ingress_window = std::time::Instant::now();
 	let mut ingress_remaining = 32u32;
+	// Keep the listener alive while handling a message so an intervening SIGINT is retained.
+	let shutdown = tokio::signal::ctrl_c();
+	tokio::pin!(shutdown);
 	let result = async {
 		loop {
 			let msg = tokio::select! {
@@ -364,7 +367,7 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 					}
 					continue;
 				},
-				_ = tokio::signal::ctrl_c() => return Ok(()),
+				signal = &mut shutdown => { signal?; return Ok(()); },
 				_ = &mut handle.handle => return Err(eyre!("consensus engine stopped")),
 				msg = channels.consensus.recv() => msg.ok_or_else(|| eyre!("consensus channel closed"))?,
 			};
