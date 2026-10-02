@@ -2,7 +2,7 @@
 
 A Rust payment-chain proof of concept built around **Malachite**, progressing from a working consensus network to post-quantum cryptography.
 
-**Current stage: working M1 devnet; milestone acceptance remains incomplete.** Payments, consensus, persistence, synchronization, RPC and the four-node Compose setup are implemented and exercised by the acceptance suite. The [WAL-first signing-recovery change](docs/development/signing-recovery.md) addresses the M1-04 process-crash gap; final acceptance remains tracked in [#15](https://github.com/RinPQC/chain/issues/15). M2 has not started. The network is not production-ready or independently audited.
+**Current stage: M1 complete within the documented PoC acceptance scope.** Payments, consensus, persistence, synchronization, RPC and the four-node Compose setup are implemented and tested. The reviewed and merged [WAL-first signing-recovery change](docs/development/signing-recovery.md) closes the last M1-04 process-crash blocker. See the [acceptance report](docs/development/acceptance.md) for exact revisions, results and limits, and [tracker #15](https://github.com/RinPQC/chain/issues/15) for delivery history. M2 has not started. The network is not production-ready or independently audited.
 
 This repository hosts the node implementation, integration tests, development-network configuration, and implementation documentation. Research, requirements, and architectural decision records live in [RinPQC/consensus](https://github.com/RinPQC/consensus).
 
