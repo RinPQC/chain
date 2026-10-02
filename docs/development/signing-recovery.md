@@ -1,6 +1,6 @@
 # WAL-first signing recovery
 
-This change addresses #30 without replacing Malachite or rewriting engine history. It changes the application's signature-release ordering and reconstructs only an authenticated missing tail of its signing journal. The engine remains pinned to `72143f6c99a98452b587e1c392bdb80944eb2232` (0.8.0). The implementation and evidence are subject to review; this document does not independently close M1.
+This change addresses #30 without replacing Malachite or rewriting engine history. It changes the application's signature-release ordering and reconstructs only an authenticated missing tail of its signing journal. The engine remains pinned to `72143f6c99a98452b587e1c392bdb80944eb2232` (0.8.0). The implementation was reviewed and merged in [PR #32](https://github.com/RinPQC/chain/pull/32); the [M1 acceptance report](acceptance.md) records the exact tested revisions, results and remaining limits.
 
 ## Problem and invariant
 

@@ -2,23 +2,25 @@
 
 M1 is a four-validator, classical-signature payment devnet. This document maps the completion criteria to reproducible tests and their limits. A passing trace is implementation evidence under the stated conditions, not a general consensus safety proof, a production readiness decision, or a post-quantum performance result. M2 has not started.
 
-## Recorded baseline before WAL-first signing recovery
+## Accepted M1 evidence
 
-The original implementation backlog (#3–#14) is merged. [Tracker #15](https://github.com/RinPQC/chain/issues/15) remains open because an incomplete mandatory criterion blocks M1 completion. [Issue #30](https://github.com/RinPQC/chain/issues/30) tracks the remaining M1-04 signature/WAL recovery work; no recovery design is selected by this status update.
+The implementation backlog (#3–#14) and the final M1-04 recovery task (#30) are merged. [PR #32](https://github.com/RinPQC/chain/pull/32) was approved by redlucy57 on head `fb1060ce8adb44402603580f6472db9f2b095826` and merged as `59eded100dd5cdab153b47b2f3cbaaac3dc40865`. Together with the evidence below, this closes the mandatory criteria M1-01–M1-07 within their declared PoC bounds. [Tracker #15](https://github.com/RinPQC/chain/issues/15) records completion; M2 has not started.
 
-[Acceptance run 36957876702](https://github.com/RinPQC/chain/actions/runs/36957876702) passed both jobs for PR #29 head `7d043b4ad0e5c6501dea08241da8f1f46a75ba3a`. The artifact records the actual checked-out merge revision `faec6d0abfd00a32abd95b2178b2ef1e89656aab`. PR #29 was subsequently merged as `e34c6387b12111844a388664562b794d0c9584b6`.
+[Acceptance run 36968054144](https://github.com/RinPQC/chain/actions/runs/36968054144) passed both jobs for that PR head. Its actual tested merge checkout was `825761f841c9e76f19565624629ed0f3571e7e81`. The merge commit is a separate identifier; both revisions have the identical Git tree `b756a8b95fb1f1813ba0c26a2d1a2fd877bf907d`. These observations describe the recorded test checkout.
 
 | Observed result | Evidence |
 | --- | --- |
-| Native quality gate | 93 tests passed; two existing DNS tests skipped; initialization checks passed |
-| 2–2 partition | All four heads remained at height 7 during the 12-second observation after settling |
-| 3–1 partition | Majority advanced from height 11 to 14; isolated node remained at height 9 |
-| Reconnection and restart | All four nodes converged at height 15, retaining payment balances, nonce and receipt |
-| Finalized trace comparison | No conflicting block/state-root pairs across 15 retained heights; packet counters confirm cross-group drops |
+| Native quality gate | 98 tests passed; two existing DNS tests skipped; initialization, lint, formatting and dependency checks passed |
+| Signing crash recovery | All 18 cases passed in 332.9 seconds: proposal/prevote/precommit, before-WAL/after-WAL/after-journal, rounds zero/one; repeated recovery interruption and recovered validator required for quorum |
+| Lock preservation | Core replay rejects a conflicting later-round proposal while retaining the recovered lock; network precommit cases retain the locked block |
+| 2–2 partition | All four heads remained at height 6 during the 12-second observation after settling |
+| 3–1 partition | Majority advanced to height 11; isolated node remained at height 8 |
+| Reconnection and restart | Reconnection converged at height 12; persistent restart converged at height 13 with matching payment state |
+| Finalized trace comparison | No conflicting block/state-root pairs across 12 retained pre-recreation heights; post-recreation agreement checked separately |
 
-The [devnet artifact](https://github.com/RinPQC/chain/actions/runs/36957876702/artifacts/11206801225) and [native artifact](https://github.com/RinPQC/chain/actions/runs/36957876702/artifacts/11207051016) expire after 30 days. These are results of that exact run, not a claim that every future revision or crash schedule passes. M1-01/02/03/05/06/07 have evidence within the matrix's declared bounds; M1-04 has planned-restart and partial crash-recovery evidence but retains the mandatory blocker.
+The [devnet artifact](https://github.com/RinPQC/chain/actions/runs/36968054144/artifacts/11210318219) and [native artifact](https://github.com/RinPQC/chain/actions/runs/36968054144/artifacts/11210268909) expire after 30 days. These are results of that exact run, not a claim that every future revision or crash schedule passes. The earlier [PR #29 baseline](https://github.com/RinPQC/chain/actions/runs/36957876702) had 93 passing tests and left M1-04 incomplete; it is superseded by the reviewed recovery evidence above.
 
-The subsequent [WAL-first recovery implementation](signing-recovery.md) addresses #30 with an additional crash matrix and lock-replay tests. To complete the tracker, review that change and the full gate/container evidence for its resulting revision. Until then, do not close M1 or begin M2 on the basis of the merged initial backlog alone. Missing/corrupt recovery files, total rollback and copied active keys remain distinct unsupported conditions; addressing the ordinary process-crash window does not waive those checks.
+[WAL-first recovery](signing-recovery.md) removes the old journal-before-WAL release window and recovers authenticated missing journal tails from intact engine history. Already-stranded legacy directories, missing/corrupt recovery files, total rollback and copied active keys remain unsupported. M1 acceptance neither waives those checks nor establishes production or post-quantum readiness.
 
 ## Reproduce from a clean checkout
 
@@ -63,9 +65,10 @@ Install the pinned native build tools from [build.md](build.md) and run:
 ```sh
 just check
 just devnet-check
+just recovery-check
 ```
 
-The CI `check` job runs these Rust and initialization checks. The `devnet` job runs the actual container scenario on a clean Ubuntu 24.04 runner. YAML validation alone is not container-execution evidence.
+The CI `check` job runs these Rust, initialization and signing-crash checks sequentially. `just recovery-check` builds a test-only fault-injection binary; rebuild with `cargo build --locked -p rinpqc-node` before normal operation. The `devnet` job runs the actual container scenario on a clean Ubuntu 24.04 runner. YAML validation alone is not container-execution evidence.
 
 ## Declared configuration and assumptions
 
@@ -93,14 +96,14 @@ Test names below are stable selectors for `cargo nextest run --locked -p rinpqc-
 | M1-01 identical history and balances | `four_validators_commit_payments_restart_and_replace_missing_proposer`; `fresh_and_returning_validator_resume_verified_history_while_peers_keep_producing`; container scenario compares heads, balances and every retained `COMMITTED` trace at overlapping heights | Finite traces on one host; not a proof for all schedules |
 | M1-02 atomic, exactly-once payments and rejection | `invalid_payments_and_concurrent_double_spend_have_one_durable_winner` sends invalid signatures and insufficient-funds payments through real RPC, races two valid nonce-zero spends at different nodes, checks one receipt and all affected balances/nonces before and after restart; `payment_cli_submits_finalizes_and_retries_without_a_second_debit`; `process_exit_at_each_commit_boundary_recovers_all_or_nothing`; `decision_process_exit_recovers_payment_only_with_durable_certificate` | A losing conflicting request may initially be pending on another node; only one can finalize. The winning identical retry returns the original receipt rather than an error. Process exit does not emulate power loss inside the storage driver |
 | M1-03 one validator/proposer unavailable | Native missing-proposer test and container `fresh`: start the three validators excluding the scheduled initial proposer; 3–1 scenario requires each majority node to advance by two blocks | Requires timely communication among three correct validators; no throughput guarantee |
-| M1-04 restart and signing recovery | Native payment/restart and interrupted catch-up tests; decision-process-exit tests; `durable_signing_refuses_conflicts_regression_and_cross_chain_replay`; `signed_message_must_be_present_in_wal_before_restart_can_sign` | [WAL-first recovery](signing-recovery.md) adds `just recovery-check` (18 network crash cases with the recovered validator required for quorum) and authenticated-tail/lock-replay unit tests. This updates M1-04 beyond the baseline above; final acceptance requires review of the new run. Old stranded directories, lost engine history, total rollback and copied active keys remain unsupported |
+| M1-04 restart and signing recovery | Native payment/restart and interrupted catch-up tests; decision-process-exit tests; `durable_signing_refuses_conflicts_regression_and_cross_chain_replay`; `signed_message_must_be_present_in_wal_before_restart_can_sign` | [WAL-first recovery](signing-recovery.md) adds `just recovery-check` (18 network crash cases with the recovered validator required for quorum) and authenticated-tail/lock-replay unit tests. The reviewed run above satisfies M1-04 within the intact-storage process-crash scope. Old stranded directories, lost engine history, total rollback and copied active keys remain unsupported |
 | M1-05 fresh verified synchronization | Native fresh/returning test and container unused-validator catch-up; invalid certificate/execution cases in `sync_rejects_corruption_wrong_chain_bad_quorum_and_invalid_certified_execution` | Fixed membership and retained history; no arbitrary new validator, snapshots or pruning |
 | M1-06 quorum loss, partitions and convergence | `two_validators_cannot_finalize_and_can_restart_their_active_wal`; actual 2–2 and 3–1 packet partitions in `smoke.py`; matching heads after both heals; conflicting height/block/root pairs fail the trace check | Eight seconds allow in-flight decisions to settle; 2–2 must then show an unchanged head on all four nodes for 12 seconds. This is a bounded observation, not a proof of indefinite non-finality |
 | M1-07 reproducible operation | This clean-checkout walkthrough, linked native guides, `test_setup.py` and clean-runner container CI | Supported target is Linux x86-64 with Docker access. Native initialization can be tested without Docker; container scenarios cannot |
 
 The decision-process-exit test drives the adapter recovery boundary with real persisted signed certificates; it does not inject a crash into every live engine actor instruction.
 
-The matrix reports the demonstrated subset and the M1-04 limitation explicitly. It does not unilaterally declare M1 complete or waive the broader restart criterion; milestone closure is a separate review decision.
+All seven criteria have reviewed implementation evidence within the limits recorded here. This acceptance covers a fixed four-validator devnet and finite fault traces; it does not establish permissionless operation, arbitrary Byzantine-schedule safety, mobile performance or PQ security.
 
 ## Partition controls and evidence
 
@@ -123,7 +126,7 @@ The CI artifact `m1-devnet-<run-id>-<attempt>` is retained for 30 days and conta
 - `compose.yaml` and `genesis.json`: resolved topology, operational configuration and public genesis.
 - Per-node pre-recreation logs and final-container logs: committed height/block/state-root traces, recovery and synchronization observations.
 
-The companion `m1-native-<run-id>-<attempt>` artifact records the Rust toolchain, checked-out revision, complete quality-gate log and initialization checks. CI logs also record the container build. No keys, volume archives, signing journals or application databases are uploaded. Preserve artifacts outside CI before their retention expires if long-term evidence is required. A failed run may contain partial evidence; require both CI jobs to succeed for the same source revision and `report.json` to report success. The report checks all overlapping retained committed traces before container recreation; post-recreation agreement is checked through verified heads and payment state.
+The companion `m1-native-<run-id>-<attempt>` artifact records the Rust toolchain, checked-out revision, complete quality-gate log, initialization checks and `signing-recovery.log` with all 18 crash cases. CI logs also record the container build. No keys, volume archives, signing journals or application databases are uploaded. Preserve artifacts outside CI before their retention expires if long-term evidence is required. A failed run may contain partial evidence; require both CI jobs to succeed for the same source revision and `report.json` to report success. The report checks all overlapping retained committed traces before container recreation; post-recreation agreement is checked through verified heads and payment state.
 
 ## Recovery and troubleshooting
 
@@ -137,4 +140,4 @@ The companion `m1-native-<run-id>-<attempt>` artifact records the Rust toolchain
 | Partial initialization, missing WAL, signature/WAL mismatch, conflicting history or corrupt state | Stop the affected identity and preserve all files. Do not delete the WAL, import balances alone, or start a copied key. No supported general repair exists |
 | Disposable network is no longer needed | `scripts/devnet.sh reset --discard-test-state`; this irreversibly removes all four volumes, including keys and balances |
 
-For ordinary shutdown, use SIGINT through the supplied controls. An expired stop grace period or host failure can still hit unsupported recovery windows. Consult [durable storage](storage.md) and [synchronization](synchronization.md) before interpreting `RECOVERED`, `SIGNING_READY` or `SYNC_VERIFIED`: only `COMMITTED` establishes local durable application inclusion.
+For ordinary shutdown, use SIGINT through the supplied controls. An abrupt process exit with intact, durably flushed files follows the WAL-first recovery path. Power loss with dishonest flushes, lost files or rollback remains outside this guarantee. Consult [durable storage](storage.md) and [synchronization](synchronization.md) before interpreting `RECOVERED`, `SIGNING_READY` or `SYNC_VERIFIED`: only `COMMITTED` establishes local durable application inclusion.
