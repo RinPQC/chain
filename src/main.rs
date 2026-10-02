@@ -12,7 +12,7 @@ fn run(args: &[String]) -> eyre::Result<()> {
 	}
 	match args {
 		[arg] if arg == "--help" || arg == "-h" => {
-			println!("rinpqc-node — M1 development node\n\nCommands:\n  keygen <transaction|validator|network> <new-key-file>\n  genesis-create <new-json-file> <validator1> <validator2> <validator3> <validator4> <funded-account>\n  genesis-check <json-file>\n  config-check <toml-file>\n  init <toml-file>\n  start <toml-file> [signed-payment-batch]\n  payment-sign <transaction-key> <genesis-json> <recipient> <amount> <nonce> <new-signed-file>\n  payment-submit <rpc-address> <signed-file>\n  chain-status <rpc-address> <chain-id>\n  account <rpc-address> <chain-id> <account-id>\n  transaction <rpc-address> <chain-id> <tx-id>\n  --version\n\nKeys and account IDs are lowercase hex public keys.");
+			println!("rinpqc-node — M1 development node\n\nCommands:\n  keygen <transaction|validator|network> <new-key-file>\n  genesis-create <new-json-file> <validator1> <validator2> <validator3> <validator4> <funded-account>\n  genesis-check <json-file>\n  config-check <toml-file>\n  init <toml-file>\n  start <toml-file> [signed-payment-batch]\n  payment-sign <transaction-key> <genesis-json> <recipient> <amount> <nonce> <new-signed-file>\n  payment-submit <rpc-address> <signed-file>\n  chain-status <rpc-address> <chain-id>\n  metrics <rpc-address> <chain-id>\n  account <rpc-address> <chain-id> <account-id>\n  transaction <rpc-address> <chain-id> <tx-id>\n  --version\n\nKeys and account IDs are lowercase hex public keys.");
 		},
 		[arg] if arg == "--version" || arg == "-V" => {
 			println!("rinpqc-node {}", env!("CARGO_PKG_VERSION"))

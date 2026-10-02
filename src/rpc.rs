@@ -27,6 +27,7 @@ pub struct Request {
 #[serde(tag = "method", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
 	Status,
+	Metrics,
 	Account { account: String },
 	Transaction { tx_id: String },
 	Submit { signed_transfer: String },
@@ -157,6 +158,7 @@ pub fn handle(
 	request: Request,
 	store: &Store,
 	pending: &mut PaymentQueue,
+	metrics: &crate::observability::Metrics,
 ) -> eyre::Result<Response> {
 	if request.version != 1 {
 		return Ok(Response::error("UNSUPPORTED_VERSION", "Use RPC version 1."));
@@ -166,6 +168,7 @@ pub fn handle(
 		return Ok(Response::error("WRONG_CHAIN", "Use the chain ID from the trusted genesis."));
 	}
 	let result = match request.operation {
+		Operation::Metrics => metrics.snapshot(ledger.height(), pending.len()),
 		Operation::Status => {
 			json!({"chain_id": hex::encode(ledger.chain_id()), "height": ledger.height().to_string(), "block_id": hex::encode(ledger.block_id()), "state_root": hex::encode(ledger.state_root())})
 		},

@@ -5,7 +5,7 @@ use super::{
 		self,
 		app::{
 			config,
-			engine::host::Next,
+			engine::host::{Next, SyncedValueOutcome},
 			streaming::StreamContent,
 			types::{
 				codec::Codec as _,
@@ -229,6 +229,7 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 	ensure!(std::fs::read(dir.join("consensus.ready"))? == READY, "run init before start");
 	let chain = config.genesis.chain_id()?;
 	let codec = Codec { chain };
+	let recovery_started = std::time::Instant::now();
 	let mut store = Store::open(&dir.join("application.redb"), &config.genesis)?;
 	let journal = Arc::new(Journal::open(
 		&dir.join("consensus.redb"),
@@ -243,6 +244,15 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 		store.ledger()?.height(),
 		config.validator.public_key(),
 	)?;
+	let mut metrics = crate::observability::Metrics::recovered(
+		store.ledger()?.height(),
+		recovery_started.elapsed(),
+	);
+	println!(
+		"RECOVERED height={} elapsed_ms={}",
+		metrics.recovered_height,
+		metrics.recovery_duration.as_millis()
+	);
 	let next_height = Arc::new(std::sync::atomic::AtomicU64::new(
 		store.ledger()?.height().checked_add(1).ok_or_else(|| eyre!("height exhausted"))?,
 	));
@@ -344,7 +354,7 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 							crate::rpc::Response::error("RATE_LIMITED", "Retry after one second using the identical signed request.")
 						} else {
 							rpc_remaining -= 1;
-							crate::rpc::handle(call.request, &store, &mut pending)?
+							crate::rpc::handle(call.request, &store, &mut pending, &metrics)?
 						};
 						let _ = call.reply.send(response);
 					}
@@ -384,6 +394,9 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 					));
 				},
 				AppMsg::StartedRound { height, round, proposer, reply_value, .. } => {
+					metrics.height = height.0;
+					metrics.round = round.as_i64();
+					metrics.proposer = proposer.to_string();
 					active_round = round;
 					println!("ROUND height={} round={} proposer={}", height.0, round, proposer);
 					let mut values = Vec::new();
@@ -459,6 +472,10 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 									value = Some(proposed(&part, Validity::Valid));
 								}
 							}
+							if value.is_none() {
+								metrics.rejected_proposals_total = metrics.rejected_proposals_total.saturating_add(1);
+								tracing::warn!(height=part.proposal.height.0, round=part.proposal.round.as_i64(), "PROPOSAL_REJECTED");
+							}
 						}
 					}
 					let _ = reply.send(value);
@@ -486,6 +503,7 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 					}
 				},
 				AppMsg::Decided { certificate, reply, .. } => {
+					let advances = certificate.height.0 > store.ledger()?.height();
 					check_certificate(&verifier, &certificate, &validators).await?;
 					let block = journal
 						.block(certificate.value_id)?
@@ -499,6 +517,7 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 					}
 					journal.save_certificate(&certificate)?;
 					store.commit_decided(certificate.height.0, &block)?;
+					if advances { metrics.finalized_total = metrics.finalized_total.saturating_add(1); }
 					next_height.store(store.ledger()?.height().checked_add(1).ok_or_else(|| eyre!("height exhausted"))?, std::sync::atomic::Ordering::SeqCst);
 					pending.revalidate(store.ledger()?);
 					println!(
@@ -546,6 +565,11 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 						&store, &journal, &validators, &verifier,
 						height, round, proposer, &value_bytes,
 					).await?;
+					match &outcome {
+						SyncedValueOutcome::Verdict(_) => metrics.sync_verified_total = metrics.sync_verified_total.saturating_add(1),
+						SyncedValueOutcome::PeerFault => metrics.sync_rejected_total = metrics.sync_rejected_total.saturating_add(1),
+						_ => {},
+					}
 					let _ = reply.send(outcome);
 				},
 			}

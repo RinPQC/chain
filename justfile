@@ -34,3 +34,7 @@ test-crate crate="rinpqc-node" *ARGS:
 	cargo nextest run --locked -p {{crate}} {{ARGS}}
 
 check: fmt-check build lint test deny
+
+# Real key/config initialization without a container daemon.
+devnet-check: build
+	python3 scripts/devnet/test_setup.py

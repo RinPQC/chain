@@ -1,0 +1,17 @@
+**
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!src/
+!src/**
+!vendor/
+!vendor/**
+!scripts/
+!scripts/devnet/
+!scripts/devnet/container.py
+!Dockerfile
+
+**/*.key
+**/*.redb
+**/*.wal
+**/.env*

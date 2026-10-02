@@ -67,7 +67,7 @@ wait "${node_pids[@]}"
 
 For a restart, reuse the same files and run `start` again; do not rerun keygen or delete recovery data. A returning validator now downloads and verifies missed history while peers keep producing blocks. See the [synchronization and signing-readiness contract](synchronization.md). Missing or inconsistent recovery files still refuse startup; never reset a used validator's WAL or copy only its balances.
 
-`RUST_LOG=info` enables upstream diagnostic logs. `COMMITTED` is emitted only after the application store confirms durability. Logs and [local RPC](rpc.md) provide the initial operational interfaces; stable metrics are later work.
+`RUST_LOG=info` enables upstream diagnostic logs. `COMMITTED` is emitted only after the application store confirms durability. Logs and [local RPC](rpc.md) provide the initial operational interfaces; the [devnet guide](devnet.md#metrics-and-logs) documents diagnostic metrics and their reset semantics.
 
 ## Payments in this stage
 
@@ -130,4 +130,4 @@ Payloads, certificates and signing history are retained without pruning, and rec
 
 `just check` includes real subprocess/loopback tests for equal finalized state, payments exactly once, empty blocks, coordinated restart, replacement of a missing initial proposer, no finalization with two validators, and active-height WAL restart. Unit tests cover duplicate/conflicting/regressed signatures, chain/type/POL binding, invalid proposals, quorum/duplicate signers, interrupted certified commits and bounded codec rejection.
 
-This completes the initial consensus integration boundary. The network is disposable and still lacks the full devnet tooling (#13) and the wider fault/acceptance suite (#14). Test coverage is evidence for these traces, not a proof of consensus correctness or a production-readiness claim.
+This completes the initial consensus integration boundary. The network is disposable and includes [Compose devnet tooling](devnet.md); the wider fault/acceptance suite (#14) remains separate. Test coverage is evidence for these traces, not a proof of consensus correctness or a production-readiness claim.
