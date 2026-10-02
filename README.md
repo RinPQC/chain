@@ -2,7 +2,7 @@
 
 A Rust payment-chain proof of concept built around **Malachite**, progressing from a working consensus network to post-quantum cryptography.
 
-**Current stage: M1 running consensus network.** This README defines two implementation milestones and their completion criteria. It does not claim that either milestone is implemented, that the network is production-ready, or that its security has been independently audited.
+**Current stage: working M1 devnet; milestone acceptance remains incomplete.** Payments, consensus, persistence, synchronization, RPC and the four-node Compose setup are implemented and exercised by the acceptance suite. Automatic recovery from the signature-before-WAL crash window remains [open work for M1-04](https://github.com/RinPQC/chain/issues/30). M2 has not started. The network is not production-ready or independently audited.
 
 This repository hosts the node implementation, integration tests, development-network configuration, and implementation documentation. Research, requirements, and architectural decision records live in [RinPQC/consensus](https://github.com/RinPQC/consensus).
 
@@ -163,4 +163,4 @@ Each milestone should be broken into bounded issues linked to its completion cri
 
 Architectural decisions remain explicit records in the research repository. Completing a PoC task does not silently approve production economics, security assumptions, or features outside this scope.
 
-The integration baseline is recorded in ADR 0001. [M1 payment, genesis and block semantics](docs/specs/m1-payment-semantics.md) specifies the proposed application contract and deterministic vectors for issue #4. These documents introduce no running implementation.
+The integration baseline is recorded in ADR 0001. [M1 payment, genesis and block semantics](docs/specs/m1-payment-semantics.md) specifies the application contract and deterministic vectors from issue #4. The acceptance matrix above records implementation evidence and remaining limits.
