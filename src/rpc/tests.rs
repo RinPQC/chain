@@ -57,13 +57,29 @@ fn pending_finalized_retries_and_forged_retries_are_distinct() {
 	let mut queue = PaymentQueue::default();
 	let status = || Operation::Transaction { tx_id: hex::encode(payment.transfer.id()) };
 	assert_eq!(
-		value(handle(request(&store, status()), &store, &mut queue).unwrap())["status"],
+		value(
+			handle(
+				request(&store, status()),
+				&store,
+				&mut queue,
+				&crate::observability::Metrics::default()
+			)
+			.unwrap()
+		)["status"],
 		"unknown"
 	);
 	let submit = || Operation::Submit { signed_transfer: hex::encode(payment.encode()) };
 	for _ in 0..2 {
 		assert_eq!(
-			value(handle(request(&store, submit()), &store, &mut queue).unwrap())["status"],
+			value(
+				handle(
+					request(&store, submit()),
+					&store,
+					&mut queue,
+					&crate::observability::Metrics::default()
+				)
+				.unwrap()
+			)["status"],
 			"pending"
 		);
 	}
@@ -74,7 +90,15 @@ fn pending_finalized_retries_and_forged_retries_are_distinct() {
 	queue.revalidate(store.ledger().unwrap());
 	for _ in 0..2 {
 		assert_eq!(
-			value(handle(request(&store, submit()), &store, &mut queue).unwrap())["status"],
+			value(
+				handle(
+					request(&store, submit()),
+					&store,
+					&mut queue,
+					&crate::observability::Metrics::default()
+				)
+				.unwrap()
+			)["status"],
 			"finalized"
 		);
 	}
@@ -89,14 +113,23 @@ fn pending_finalized_retries_and_forged_retries_are_distinct() {
 					Operation::Submit { signed_transfer: hex::encode(forged.encode()) }
 				),
 				&store,
-				&mut queue
+				&mut queue,
+				&crate::observability::Metrics::default(),
 			)
 			.unwrap()
 		),
 		"INVALID_SIGNATURE_OR_CHAIN"
 	);
 	assert_eq!(
-		value(handle(request(&store, status()), &store, &mut queue).unwrap())["height"],
+		value(
+			handle(
+				request(&store, status()),
+				&store,
+				&mut queue,
+				&crate::observability::Metrics::default()
+			)
+			.unwrap()
+		)["height"],
 		"1"
 	);
 }
@@ -106,16 +139,23 @@ fn version_chain_and_encoding_errors_do_not_admit_payments() {
 	let mut queue = PaymentQueue::default();
 	let mut req = request(&store, Operation::Status);
 	req.version = 2;
-	assert_eq!(error(handle(req, &store, &mut queue).unwrap()), "UNSUPPORTED_VERSION");
+	assert_eq!(
+		error(handle(req, &store, &mut queue, &crate::observability::Metrics::default()).unwrap()),
+		"UNSUPPORTED_VERSION"
+	);
 	let mut req = request(&store, Operation::Status);
 	req.chain_id = hex::encode([0; 32]);
-	assert_eq!(error(handle(req, &store, &mut queue).unwrap()), "WRONG_CHAIN");
+	assert_eq!(
+		error(handle(req, &store, &mut queue, &crate::observability::Metrics::default()).unwrap()),
+		"WRONG_CHAIN"
+	);
 	assert_eq!(
 		error(
 			handle(
 				request(&store, Operation::Submit { signed_transfer: "00".repeat(181) }),
 				&store,
-				&mut queue
+				&mut queue,
+				&crate::observability::Metrics::default(),
 			)
 			.unwrap()
 		),
@@ -163,6 +203,7 @@ fn pending_is_local_and_volatile_and_admission_errors_are_structured() {
 		request(&store, Operation::Submit { signed_transfer: hex::encode(payment.encode()) }),
 		&store,
 		&mut queue,
+		&crate::observability::Metrics::default(),
 	)
 	.unwrap();
 	assert_eq!(error(response), "INSUFFICIENT_FUNDS");
@@ -173,6 +214,7 @@ fn pending_is_local_and_volatile_and_admission_errors_are_structured() {
 		request(&store, Operation::Submit { signed_transfer: hex::encode(payment.encode()) }),
 		&store,
 		&mut queue,
+		&crate::observability::Metrics::default(),
 	)
 	.unwrap();
 	queue = PaymentQueue::default();
@@ -180,8 +222,24 @@ fn pending_is_local_and_volatile_and_admission_errors_are_structured() {
 		request(&store, Operation::Transaction { tx_id: hex::encode(payment.transfer.id()) }),
 		&store,
 		&mut queue,
+		&crate::observability::Metrics::default(),
 	)
 	.unwrap();
 	assert_eq!(value(status)["status"], "unknown");
 	assert_eq!(store.ledger().unwrap().height(), 0);
+}
+
+#[test]
+fn metrics_are_bounded_and_distinguish_queue_from_committed_height() {
+	let (_dir, store, payment) = fixture();
+	let mut queue = PaymentQueue::default();
+	queue.admit(store.ledger().unwrap(), &payment.encode()).unwrap();
+	let metrics = crate::observability::Metrics::default();
+	let response =
+		handle(request(&store, Operation::Metrics), &store, &mut queue, &metrics).unwrap();
+	assert!(serde_json::to_vec(&response).unwrap().len() < MAX_FRAME);
+	let snapshot = value(response);
+	assert_eq!(snapshot["queue_depth"], "1");
+	assert_eq!(snapshot["committed_height"], "0");
+	assert_eq!(snapshot["finalized_total"], "0");
 }

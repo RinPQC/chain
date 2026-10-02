@@ -46,9 +46,20 @@ pub fn run(args: &[String]) -> eyre::Result<bool> {
 				},
 			)
 		},
-		[cmd, address, chain] if cmd == "chain-status" => {
+		[cmd, address, chain] if cmd == "chain-status" || cmd == "metrics" => {
 			parse_id(chain)?;
-			(address, Request { version: 1, chain_id: chain.clone(), operation: Operation::Status })
+			(
+				address,
+				Request {
+					version: 1,
+					chain_id: chain.clone(),
+					operation: if cmd == "metrics" {
+						Operation::Metrics
+					} else {
+						Operation::Status
+					},
+				},
+			)
 		},
 		[cmd, address, chain, id] if cmd == "account" || cmd == "transaction" => {
 			parse_id(chain)?;

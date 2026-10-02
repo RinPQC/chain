@@ -5,7 +5,7 @@ use super::{
 		self,
 		app::{
 			config,
-			engine::host::Next,
+			engine::host::{Next, SyncedValueOutcome},
 			streaming::StreamContent,
 			types::{
 				codec::Codec as _,
@@ -229,6 +229,7 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 	ensure!(std::fs::read(dir.join("consensus.ready"))? == READY, "run init before start");
 	let chain = config.genesis.chain_id()?;
 	let codec = Codec { chain };
+	let recovery_started = std::time::Instant::now();
 	let mut store = Store::open(&dir.join("application.redb"), &config.genesis)?;
 	let journal = Arc::new(Journal::open(
 		&dir.join("consensus.redb"),
@@ -243,6 +244,15 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 		store.ledger()?.height(),
 		config.validator.public_key(),
 	)?;
+	let mut metrics = crate::observability::Metrics::recovered(
+		store.ledger()?.height(),
+		recovery_started.elapsed(),
+	);
+	println!(
+		"RECOVERED height={} elapsed_ms={}",
+		metrics.recovered_height,
+		metrics.recovery_duration.as_millis()
+	);
 	let next_height = Arc::new(std::sync::atomic::AtomicU64::new(
 		store.ledger()?.height().checked_add(1).ok_or_else(|| eyre!("height exhausted"))?,
 	));
@@ -323,6 +333,23 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 		.with_default_request(RequestContext::new(32))
 		.build()
 		.await?;
+	let children = handle.actor.get_cell().get_children();
+	let consensus_actor = children
+		.iter()
+		.find(|cell| {
+			cell.is_message_type_of::<malachite_runtime::consensus::Msg<Context>>() == Some(true)
+		})
+		.cloned()
+		.ok_or_else(|| eyre!("consensus actor missing"))?;
+	let wal_actor = children
+		.iter()
+		.find(|cell| {
+			cell.is_message_type_of::<malachite_runtime::wal::Msg<Context>>() == Some(true)
+		})
+		.cloned()
+		.ok_or_else(|| eyre!("WAL actor missing"))?;
+	let mut stopping = false;
+	let mut stop_deadline = tokio::time::Instant::now();
 	let mut active_round = Round::ZERO;
 	let mut gossip_tick = tokio::time::interval(Duration::from_millis(250));
 	gossip_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -340,17 +367,19 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 					if let Some(call) = call {
 						if call.reply.is_closed() { continue; }
 						if rpc_window.elapsed() >= Duration::from_secs(1) { rpc_window = std::time::Instant::now(); rpc_remaining = 16; }
-						let response = if rpc_remaining == 0 {
+						let response = if stopping {
+							crate::rpc::Response::error("UNAVAILABLE", "Node is stopping; query status or retry the identical signed request after restart.")
+						} else if rpc_remaining == 0 {
 							crate::rpc::Response::error("RATE_LIMITED", "Retry after one second using the identical signed request.")
 						} else {
 							rpc_remaining -= 1;
-							crate::rpc::handle(call.request, &store, &mut pending)?
+							crate::rpc::handle(call.request, &store, &mut pending, &metrics)?
 						};
 						let _ = call.reply.send(response);
 					}
 					continue;
 				},
-				_ = gossip_tick.tick() => {
+				_ = gossip_tick.tick(), if !stopping => {
 					ensure!(!rpc_server.as_ref().is_some_and(|s| s.is_finished()), "RPC listener stopped");
 					if let Some((key, payment)) = pending.next_gossip(gossip_cursor) {
 						// A fresh stream ID permits retry after peers connect or previously reject it.
@@ -367,7 +396,24 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 					}
 					continue;
 				},
-				signal = &mut shutdown => { signal?; return Ok(()); },
+				signal = &mut shutdown, if !stopping => {
+					signal?;
+					stopping = true;
+					stop_deadline = tokio::time::Instant::now() + Duration::from_secs(8);
+					// Parent shutdown kills children immediately. Finish consensus first while
+					// keeping its host replies and WAL available through the current handler.
+					consensus_actor.unlink(handle.actor.get_cell());
+					consensus_actor.stop(Some("operator shutdown".into()));
+					continue;
+				},
+				_ = tokio::time::sleep_until(stop_deadline), if stopping => return Err(eyre!("consensus did not finish controlled shutdown; recovery checks remain required")),
+				_ = consensus_actor.wait(None), if stopping => {
+					let (reply, flushed) = tokio::sync::oneshot::channel();
+					wal_actor.send_message(malachite_runtime::wal::Msg::<Context>::Flush(reply.into())).map_err(|_| eyre!("WAL unavailable at shutdown"))?;
+					tokio::time::timeout(Duration::from_secs(2), flushed).await???;
+					println!("STOPPED height={}", store.ledger()?.height());
+					return Ok(());
+				},
 				_ = &mut handle.handle => return Err(eyre!("consensus engine stopped")),
 				msg = channels.consensus.recv() => msg.ok_or_else(|| eyre!("consensus channel closed"))?,
 			};
@@ -384,6 +430,9 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 					));
 				},
 				AppMsg::StartedRound { height, round, proposer, reply_value, .. } => {
+					metrics.height = height.0;
+					metrics.round = round.as_i64();
+					metrics.proposer = proposer.to_string();
 					active_round = round;
 					println!("ROUND height={} round={} proposer={}", height.0, round, proposer);
 					let mut values = Vec::new();
@@ -395,6 +444,7 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 					let _ = reply_value.send(values);
 				},
 				AppMsg::GetValue { height, round, reply, .. } => {
+					if stopping { continue; }
 					ensure!(height.0 == store.ledger()?.height() + 1, "proposal height mismatch");
 					let cached = journal
 						.parts(height, round)?
@@ -459,6 +509,10 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 									value = Some(proposed(&part, Validity::Valid));
 								}
 							}
+							if value.is_none() {
+								metrics.rejected_proposals_total = metrics.rejected_proposals_total.saturating_add(1);
+								tracing::warn!(height=part.proposal.height.0, round=part.proposal.round.as_i64(), "PROPOSAL_REJECTED");
+							}
 						}
 					}
 					let _ = reply.send(value);
@@ -470,6 +524,7 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 					address: proposer,
 					value_id,
 				} => {
+					if stopping { continue; }
 					let descriptor = Proposal {
 						height,
 						round,
@@ -486,6 +541,7 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 					}
 				},
 				AppMsg::Decided { certificate, reply, .. } => {
+					let advances = certificate.height.0 > store.ledger()?.height();
 					check_certificate(&verifier, &certificate, &validators).await?;
 					let block = journal
 						.block(certificate.value_id)?
@@ -499,6 +555,7 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 					}
 					journal.save_certificate(&certificate)?;
 					store.commit_decided(certificate.height.0, &block)?;
+					if advances { metrics.finalized_total = metrics.finalized_total.saturating_add(1); }
 					next_height.store(store.ledger()?.height().checked_add(1).ok_or_else(|| eyre!("height exhausted"))?, std::sync::atomic::Ordering::SeqCst);
 					pending.revalidate(store.ledger()?);
 					println!(
@@ -546,12 +603,18 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 						&store, &journal, &validators, &verifier,
 						height, round, proposer, &value_bytes,
 					).await?;
+					match &outcome {
+						SyncedValueOutcome::Verdict(_) => metrics.sync_verified_total = metrics.sync_verified_total.saturating_add(1),
+						SyncedValueOutcome::PeerFault => metrics.sync_rejected_total = metrics.sync_rejected_total.saturating_add(1),
+						_ => {},
+					}
 					let _ = reply.send(outcome);
 				},
 			}
 		}
 	}
 	.await;
+	consensus_actor.stop(None);
 	handle.actor.stop(None);
 	// The handle can already have been consumed by select when the engine stopped.
 	if !handle.handle.is_finished() {

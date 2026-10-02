@@ -6,6 +6,18 @@ A Rust payment-chain proof of concept built around **Malachite**, progressing fr
 
 This repository hosts the node implementation, integration tests, development-network configuration, and implementation documentation. Research, requirements, and architectural decision records live in [RinPQC/consensus](https://github.com/RinPQC/consensus).
 
+## Start a disposable devnet
+
+With Docker Engine and Docker Compose v2 on Linux x86-64:
+
+```sh
+docker compose up --build -d
+scripts/devnet.sh status
+scripts/devnet.sh pay 30
+```
+
+The first launch generates fresh test keys and genesis. Ordinary restart preserves four separate data volumes. See the [devnet operator guide](docs/development/devnet.md) for payment status, controlled stops, proposer outage, partition/reconnect, fresh-validator catch-up and explicit destructive reset. No host ports or private keys are published.
+
 ## Build and run locally
 
 See [build instructions](docs/development/build.md) for prerequisites, `just setup` and the shared local/CI gate `just check`. Follow the [four-validator local network walkthrough](docs/development/consensus.md) to generate keys, initialize and start a development chain. Nodes validate [payment execution](docs/development/payments.md), verify consensus certificates and [commit state durably](docs/development/storage.md). Nodes now admit and gossip a [bounded payment queue](docs/development/consensus.md#payment-queue). New and returning validators can [synchronize verified history](docs/development/synchronization.md). Use the [local payment RPC and CLI](docs/development/rpc.md) to sign offline, submit payments and query committed balances and transaction status.

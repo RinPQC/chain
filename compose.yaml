@@ -1,0 +1,94 @@
+name: ${COMPOSE_PROJECT_NAME:-rinpqc-devnet}
+
+x-node: &node
+  image: rinpqc-devnet:local
+  build: .
+  platform: linux/amd64
+  user: "10001:10001"
+  read_only: true
+  tmpfs:
+    - /tmp:size=16m,mode=1777
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  stop_signal: SIGINT
+  stop_grace_period: 20s
+  restart: "no"
+  depends_on:
+    init:
+      condition: service_completed_successfully
+  healthcheck:
+    test: [CMD, python3, /usr/local/lib/rinpqc-devnet.py, health]
+    interval: 10s
+    timeout: 5s
+    start_period: 30s
+    retries: 6
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  init:
+    image: rinpqc-devnet:local
+    build: .
+    platform: linux/amd64
+    user: "10001:10001"
+    command: [initialize]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      DEVNET_PREFIX: ${DEVNET_PREFIX:-172.30.91}
+    volumes:
+      - node0:/devnet/node0
+      - node1:/devnet/node1
+      - node2:/devnet/node2
+      - node3:/devnet/node3
+    networks: [consensus]
+  node0:
+    <<: *node
+    environment: {NODE_INDEX: "0", RUST_LOG: warn}
+    volumes: [node0:/state]
+    networks:
+      consensus:
+        ipv4_address: ${DEVNET_PREFIX:-172.30.91}.10
+  node1:
+    <<: *node
+    environment: {NODE_INDEX: "1", RUST_LOG: warn}
+    volumes: [node1:/state]
+    networks:
+      consensus:
+        ipv4_address: ${DEVNET_PREFIX:-172.30.91}.11
+  node2:
+    <<: *node
+    environment: {NODE_INDEX: "2", RUST_LOG: warn}
+    volumes: [node2:/state]
+    networks:
+      consensus:
+        ipv4_address: ${DEVNET_PREFIX:-172.30.91}.12
+  node3:
+    <<: *node
+    environment: {NODE_INDEX: "3", RUST_LOG: warn}
+    volumes: [node3:/state]
+    networks:
+      consensus:
+        ipv4_address: ${DEVNET_PREFIX:-172.30.91}.13
+
+networks:
+  consensus:
+    name: ${COMPOSE_PROJECT_NAME:-rinpqc-devnet}_consensus
+    ipam:
+      config:
+        - subnet: ${DEVNET_PREFIX:-172.30.91}.0/24
+    labels:
+      org.rinpqc.disposable-devnet: "true"
+volumes:
+  node0:
+    labels: {org.rinpqc.disposable-devnet: "true"}
+  node1:
+    labels: {org.rinpqc.disposable-devnet: "true"}
+  node2:
+    labels: {org.rinpqc.disposable-devnet: "true"}
+  node3:
+    labels: {org.rinpqc.disposable-devnet: "true"}

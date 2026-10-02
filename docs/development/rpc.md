@@ -47,7 +47,7 @@ rpc_listen = "127.0.0.1:32001"
 
 Omitting the field disables RPC. Each node needs a different port, separate from its consensus port. Non-loopback and zero-port configurations are rejected. Bind failure prevents startup; an unexpected listener failure stops the node. Stop and restart with the same recovery files when changing the address. IPv6 loopback is supported using a socket address such as `[::1]:32001`.
 
-Run the CLI on the node's host, or explicitly forward a loopback port over SSH. RPC has no authentication or TLS: local users able to connect can read state and submit already-signed payments. Do not expose this endpoint as a public service. Public gateway policy and container packaging are outside #12.
+Run the CLI on the node's host, or explicitly forward a loopback port over SSH. RPC has no authentication or TLS: local users able to connect can read state and submit already-signed payments. Do not expose this endpoint as a public service. The [Compose devnet](devnet.md) accesses RPC through commands executed inside each container. Public gateway policy remains outside M1.
 
 ## Version 1 wire format
 
@@ -61,6 +61,7 @@ Every request includes `version: 1`, the expected genesis-derived `chain_id`, an
 
 | Method | Additional operation fields | Result |
 | --- | --- | --- |
+| `metrics` | None | Per-process diagnostic counters and current queue/height observations; see the [devnet guide](devnet.md#metrics-and-logs) |
 | `status` | None | `chain_id`, committed `height`, `block_id`, `state_root` |
 | `account` | `account`: account ID | `account`, committed `balance`, `next_nonce`, observation `height` |
 | `transaction` | `tx_id`: transaction ID | `tx_id`, `status`; finalized results also include `height`, `block_id` |

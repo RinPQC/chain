@@ -14,3 +14,5 @@ pub mod mempool;
 pub mod rpc;
 
 pub mod payment_cli;
+
+pub mod observability;

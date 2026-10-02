@@ -288,7 +288,11 @@ fn stop_one(nodes: &mut Running, index: usize) {
 	let until = Instant::now() + Duration::from_secs(10);
 	loop {
 		if let Some(status) = child.try_wait().unwrap() {
-			assert!(status.success(), "node {index} failed planned shutdown: {status}");
+			assert!(
+				status.success(),
+				"node {index} failed planned shutdown: {status}: {}",
+				fs::read_to_string(nodes.dir.join(format!("err{index}.log"))).unwrap()
+			);
 			break;
 		}
 		assert!(
@@ -359,6 +363,12 @@ fn fresh_and_returning_validator_resume_verified_history_while_peers_keep_produc
 	let logs = fs::read_to_string(network.dir.path().join(format!("out{late}.log"))).unwrap();
 	assert!(logs.contains(&format!("SIGNING_READY next_height={}", certified + 1)), "{logs}");
 	assert!(logs.contains("SYNC_VERIFIED"), "{logs}");
+	let metrics = cli_json(&[
+		"metrics",
+		&network.rpc[late].to_string(),
+		&hex::encode(network.genesis.chain_id().unwrap()),
+	]);
+	assert!(metrics["result"]["sync_verified_total"].as_str().unwrap().parse::<u64>().unwrap() > 0);
 	// Take a participating validator offline once more while the other three continue.
 	stop_one(&mut peers, late);
 	let before = signed_history(&network, late);
@@ -442,9 +452,19 @@ fn payment_cli_submits_finalizes_and_retries_without_a_second_debit() {
 	assert_eq!(cli_json(&["account", &address, &chain, &sender])["result"]["next_nonce"], "1");
 	assert_eq!(cli_json(&["account", &address, &chain, &recipient])["result"]["balance"], "30");
 	assert_ne!(cli_json(&["chain-status", &address, &chain])["result"]["height"], "0");
+	let metrics = cli_json(&["metrics", &address, &chain]);
+	assert_eq!(metrics["result"]["queue_depth"], "0");
+	assert!(metrics["result"]["finalized_total"].as_str().unwrap().parse::<u64>().unwrap() > 0);
+	let before_restart =
+		metrics["result"]["committed_height"].as_str().unwrap().parse::<u64>().unwrap();
 	stop_one(&mut nodes, network.submitter);
 	nodes.children.push((network.submitter, network.start_node(network.submitter, false)));
 	nodes.wait(4);
+	let recovered = cli_json(&["metrics", &address, &chain]);
+	assert!(
+		recovered["result"]["recovered_height"].as_str().unwrap().parse::<u64>().unwrap()
+			>= before_restart
+	);
 	assert_eq!(
 		cli_json(&["payment-submit", &address, signed.to_str().unwrap()])["result"]["status"],
 		"finalized"
