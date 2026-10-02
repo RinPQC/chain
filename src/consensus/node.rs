@@ -457,6 +457,13 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 			};
 			match msg {
 				AppMsg::ConsensusReady { reply } => {
+					#[cfg(feature = "fault-injection")]
+					if std::env::var_os("RINPQC_FAULT_READY").is_some() {
+						let network = children.iter().find(|cell| {
+							cell.is_message_type_of::<malachite_runtime::network::Msg<Context>>() == Some(true)
+						}).cloned().ok_or_else(|| eyre!("test network actor missing"))?;
+						super::faults::startup_barrier(network.into()).await?;
+					}
 					let h = store
 						.ledger()?
 						.height()

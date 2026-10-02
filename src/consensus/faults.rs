@@ -38,3 +38,39 @@ pub fn checkpoint(stage: &str, msg: &SignedConsensusMsg<Context>, codec: &super:
 		std::process::exit(86);
 	}
 }
+
+/// Hold the test's first consensus height until all three processes have gossip peers.
+pub async fn startup_barrier(
+	network: malachite_runtime::network::NetworkRef<Context>,
+) -> eyre::Result<()> {
+	let Ok(ready) = std::env::var("RINPQC_FAULT_READY") else {
+		return Ok(());
+	};
+	let release = std::env::var("RINPQC_FAULT_RELEASE")?;
+	tokio::time::timeout(std::time::Duration::from_secs(30), async {
+		loop {
+			let (reply, received) = tokio::sync::oneshot::channel();
+			network
+				.cast(malachite_runtime::network::Msg::DumpState(reply.into()))
+				.map_err(|_| eyre::eyre!("test network unavailable"))?;
+			if received.await?.is_some_and(|state| {
+				!state.local_node.subscribed_topics.is_empty()
+					&& state
+						.peers
+						.values()
+						.filter(|peer| state.local_node.subscribed_topics.is_subset(&peer.topics))
+						.count() >= 2
+			}) {
+				break;
+			}
+			tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+		}
+		std::fs::write(ready, b"ready")?;
+		while !std::path::Path::new(&release).is_file() {
+			tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+		}
+		Ok::<_, eyre::Report>(())
+	})
+	.await??;
+	Ok(())
+}

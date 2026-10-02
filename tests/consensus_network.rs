@@ -687,16 +687,36 @@ fn signing_crashes_and_interrupted_recovery_restore_required_quorum() {
 					("RINPQC_FAULT_ROUND", round_text.as_str()),
 				];
 				let mut peers = Running { children: vec![], dir: network.dir.path().to_path_buf() };
-				for i in 0..4 {
-					if i != victim && i != absent {
-						peers.children.push((i, network.start_node(i, true)));
+				let release = network.dir.path().join("release");
+				let ready: Vec<_> =
+					(0..4).map(|i| network.dir.path().join(format!("ready{i}"))).collect();
+				for i in (0..4).filter(|i| *i != absent) {
+					let mut env = vec![
+						("RINPQC_FAULT_READY", ready[i].to_str().unwrap()),
+						("RINPQC_FAULT_RELEASE", release.to_str().unwrap()),
+					];
+					if i == victim {
+						env.extend(fault);
 					}
+					peers.children.push((i, network.start_node_with_fault(i, true, &env)));
 				}
-				let (signed, value) = await_injected_exit(
-					&network,
-					victim,
-					network.start_node_with_fault(victim, true, &fault),
-				);
+				// Gate the first round on real gossip subscriptions, not process spawn timing.
+				let deadline = Instant::now() + Duration::from_secs(35);
+				while !(0..4).filter(|i| *i != absent).all(|i| ready[i].is_file()) {
+					for (i, child) in &mut peers.children {
+						assert!(
+							child.try_wait().unwrap().is_none() && Instant::now() < deadline,
+							"startup barrier failed for node {i}: {}",
+							fs::read_to_string(network.dir.path().join(format!("err{i}.log")))
+								.unwrap()
+						);
+					}
+					thread::sleep(Duration::from_millis(20));
+				}
+				fs::write(&release, b"start").unwrap();
+				let index = peers.children.iter().position(|(i, _)| *i == victim).unwrap();
+				let (_, child) = peers.children.swap_remove(index);
+				let (signed, value) = await_injected_exit(&network, victim, child);
 				let prior = signed_history(&network, victim);
 				if stage == "after_wal" {
 					let recovery_fault = [
