@@ -2,6 +2,24 @@
 
 M1 is a four-validator, classical-signature payment devnet. This document maps the completion criteria to reproducible tests and their limits. A passing trace is implementation evidence under the stated conditions, not a general consensus safety proof, a production readiness decision, or a post-quantum performance result. M2 has not started.
 
+## Delivery status after the initial acceptance run
+
+The original implementation backlog (#3–#14) is merged. [Tracker #15](https://github.com/RinPQC/chain/issues/15) remains open because an incomplete mandatory criterion blocks M1 completion. [Issue #30](https://github.com/RinPQC/chain/issues/30) tracks the remaining M1-04 signature/WAL recovery work; no recovery design is selected by this status update.
+
+[Acceptance run 36957876702](https://github.com/RinPQC/chain/actions/runs/36957876702) passed both jobs for PR #29 head `7d043b4ad0e5c6501dea08241da8f1f46a75ba3a`. The artifact records the actual checked-out merge revision `faec6d0abfd00a32abd95b2178b2ef1e89656aab`. PR #29 was subsequently merged as `e34c6387b12111844a388664562b794d0c9584b6`.
+
+| Observed result | Evidence |
+| --- | --- |
+| Native quality gate | 93 tests passed; two existing DNS tests skipped; initialization checks passed |
+| 2–2 partition | All four heads remained at height 7 during the 12-second observation after settling |
+| 3–1 partition | Majority advanced from height 11 to 14; isolated node remained at height 9 |
+| Reconnection and restart | All four nodes converged at height 15, retaining payment balances, nonce and receipt |
+| Finalized trace comparison | No conflicting block/state-root pairs across 15 retained heights; packet counters confirm cross-group drops |
+
+The [devnet artifact](https://github.com/RinPQC/chain/actions/runs/36957876702/artifacts/11206801225) and [native artifact](https://github.com/RinPQC/chain/actions/runs/36957876702/artifacts/11207051016) expire after 30 days. These are results of that exact run, not a claim that every future revision or crash schedule passes. M1-01/02/03/05/06/07 have evidence within the matrix's declared bounds; M1-04 has planned-restart and partial crash-recovery evidence but retains the mandatory blocker.
+
+To complete the tracker, resolve #30, rerun the full gate and container scenarios on the resulting revision, and review the updated M1-04 evidence. Until then, do not close M1 or begin M2 on the basis of the merged initial backlog alone. Missing/corrupt recovery files, total rollback and copied active keys remain distinct unsupported conditions; addressing the ordinary process-crash window does not waive those checks.
+
 ## Reproduce from a clean checkout
 
 On Linux x86-64, install Git, Python 3, Docker Engine and Compose v2, with permission to use the Docker daemon. Clone the repository and select the exact commit attached to the acceptance run:
