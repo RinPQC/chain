@@ -22,6 +22,8 @@ The first launch generates fresh test keys and genesis. Ordinary restart preserv
 
 See [build instructions](docs/development/build.md) for prerequisites, `just setup` and the shared local/CI gate `just check`. Follow the [four-validator local network walkthrough](docs/development/consensus.md) to generate keys, initialize and start a development chain. Nodes validate [payment execution](docs/development/payments.md), verify consensus certificates and [commit state durably](docs/development/storage.md). Nodes now admit and gossip a [bounded payment queue](docs/development/consensus.md#payment-queue). New and returning validators can [synchronize verified history](docs/development/synchronization.md). Use the [local payment RPC and CLI](docs/development/rpc.md) to sign offline, submit payments and query committed balances and transaction status.
 
+The [M1 acceptance matrix and operator handoff](docs/development/acceptance.md) maps all seven criteria to reproducible scenarios, collected evidence and explicit recovery limitations.
+
 ## Objective
 
 Build a small, understandable payment chain that:

@@ -27,7 +27,7 @@ Application schema version 1 uses one redb byte-key/byte-value table, `applicati
 | Byte `a` + account ID | Balance u64 and next nonce u64. Historical zero-balance accounts remain present. |
 | Byte `r` + transaction ID | Height u64, index u32, block ID, sender ID, recipient ID, sender balance/nonce and recipient balance/nonce after this transaction. |
 
-Receipts contain intermediate post-transfer values, which can differ from final account values after later transfers in the same block. Receipt presence means locally committed inclusion; absence means unknown to this store, not rejection or pending status. Mempool/RPC status belongs to later issues. No certificate or validator signing record is stored in this schema yet.
+Receipts contain intermediate post-transfer values, which can differ from final account values after later transfers in the same block. Receipt presence means locally committed inclusion; absence means unknown to this store, not rejection or pending status. Mempool/RPC pending status is volatile and separate from these durable receipts. No certificate or validator signing record is stored in this schema yet.
 
 The commit API accepts only the next height with valid parent linkage, signatures and transaction/state commitments, or an exact byte-for-byte match of an already committed block at its original height. The latter returns `AlreadyApplied`, including for an older height. A different block at a committed height fails with `Conflict`; neither it nor an invalid new block changes state.
 
@@ -37,7 +37,7 @@ Any error after beginning the write path makes the handle unusable until closed 
 
 Opening the database replays every canonical block from the supplied genesis, checking signatures, parent linkage, heights and execution commitments. It compares every derived receipt, all final accounts (including nonces), the head and the exact row count with storage. Missing, extra or altered rows fail closed; unknown application versions are rejected without migration. Replay retains one block and account snapshots at a time, not a second copy of the entire history. Its startup cost grows with history and repeated full-state execution; bounded snapshots and pruning are future work.
 
-`ledger()` returns the recovered snapshot. `block(height)` provides retained bytes for later synchronization, and `receipt(tx_id)` provides the durable inclusion record. History is retained without pruning, but this alone does not implement authenticated synchronization: The adapter now retains/verifies certificates in its separate consensus journal; #11 must add authenticated historical catch-up. Back up only while closed or through a future consistent backup interface; copying a live file is not supported.
+`ledger()` returns the recovered snapshot. `block(height)` provides retained bytes for later synchronization, and `receipt(tx_id)` provides the durable inclusion record. History is retained without pruning, but this alone does not implement authenticated synchronization: The adapter retains/verifies certificates in its separate consensus journal and performs [authenticated historical catch-up](synchronization.md). Back up only while closed or through a future consistent backup interface; copying a live file is not supported.
 
 Replay establishes application consistency, not historical finality or freedom from rollback. An internally consistent older copy of the database cannot be detected from application data alone. It must never authorize resumed validator signing without reconciling independent WAL/signing state.
 

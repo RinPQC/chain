@@ -592,3 +592,96 @@ async fn sync_callback_racing_a_commit_does_not_blame_the_peer() {
 	assert!(matches!(outcome, SyncedValueOutcome::PeerFault));
 	assert_eq!(store.ledger().unwrap().height(), 1);
 }
+
+fn acceptance_block() -> Vec<u8> {
+	let fixture: serde_json::Value =
+		serde_json::from_str(include_str!("../../tests/fixtures/m1-payment-block.json")).unwrap();
+	hex::decode(fixture["block_hex"].as_str().unwrap()).unwrap()
+}
+
+#[tokio::test]
+async fn decision_process_exit_recovers_payment_only_with_durable_certificate() {
+	for stage in ["cached", "certified", "committed"] {
+		let dir = tempfile::tempdir().unwrap();
+		let output = std::process::Command::new(std::env::current_exe().unwrap())
+			.args(["--exact", "consensus::tests::decision_crash_worker", "--nocapture"])
+			.env("RINPQC_DECISION_CRASH_DIR", dir.path())
+			.env("RINPQC_DECISION_CRASH_STAGE", stage)
+			.output()
+			.unwrap();
+		assert_eq!(
+			output.status.code(),
+			Some(84),
+			"{stage}: {}",
+			String::from_utf8_lossy(&output.stderr)
+		);
+		let g = genesis();
+		let chain = g.chain_id().unwrap();
+		let raw = acceptance_block();
+		let initial = Ledger::from_genesis(&g).unwrap();
+		let validated = initial.validate_block(&raw).unwrap();
+		let tx_id = validated.outcomes()[0].effect.tx_id;
+		for _ in 0..2 {
+			let journal = Journal::open(
+				&dir.path().join("14.redb"),
+				Codec { chain },
+				SecretKey::from_seed(&[14; 32], KeyRole::Validator).public_key(),
+			)
+			.unwrap();
+			let mut store = Store::open(&dir.path().join("application.redb"), &g).unwrap();
+			recover(&mut store, &journal, &Verification { chain }, &Validators::from_genesis(&g))
+				.await
+				.unwrap();
+			if stage == "cached" {
+				assert_eq!(store.ledger().unwrap(), &initial);
+				assert!(store.receipt(&tx_id).unwrap().is_none());
+				assert!(store.block(1).unwrap().is_none());
+			} else {
+				assert_eq!(store.ledger().unwrap(), validated.candidate_state());
+				assert_eq!(store.block(1).unwrap(), Some(raw.clone()));
+				let receipt = store.receipt(&tx_id).unwrap().unwrap();
+				assert_eq!(receipt.outcome, validated.outcomes()[0]);
+				assert_eq!(receipt.block_id, validated.block().header.id());
+			}
+		}
+	}
+}
+
+#[tokio::test]
+async fn decision_crash_worker() {
+	let Some(directory) = std::env::var_os("RINPQC_DECISION_CRASH_DIR") else {
+		return;
+	};
+	let dir = std::path::Path::new(&directory);
+	let stage = std::env::var("RINPQC_DECISION_CRASH_STAGE").unwrap();
+	let g = genesis();
+	let raw = acceptance_block();
+	let block = Ledger::from_genesis(&g).unwrap().validate_block(&raw).unwrap();
+	let value = Value(block.block().header.id());
+	let mut votes = Vec::new();
+	for seed in 11..=13 {
+		let s = signer(dir, seed);
+		votes.push(
+			s.sign_vote(Context.new_precommit(
+				Height(1),
+				Round::ZERO,
+				NilOrVal::Val(value),
+				Address(s.key.public_key()),
+			))
+			.await
+			.unwrap(),
+		);
+	}
+	let cert = core::CommitCertificate::new(Height(1), Round::ZERO, value, votes);
+	let s = signer(dir, 14);
+	let mut store = Store::create(&dir.join("application.redb"), &g).unwrap();
+	s.journal.put_once(&[b"b".as_slice(), &value.0].concat(), &raw).unwrap();
+	if stage != "cached" {
+		s.journal.save_certificate(&cert).unwrap();
+	}
+	if stage == "committed" {
+		store.commit_decided(1, &raw).unwrap();
+	}
+	// Skip destructors at each durable boundary; this is not a storage-device power cut.
+	std::process::exit(84);
+}

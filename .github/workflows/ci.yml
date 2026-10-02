@@ -20,9 +20,23 @@ jobs:
       - name: Install verified quality tools
         run: bash scripts/install-ci-tools.sh
       - name: Quality gate
-        run: just check
+        shell: bash
+        run: |
+          mkdir -p artifacts/native
+          git rev-parse HEAD > artifacts/native/revision.txt
+          rustc --version --verbose > artifacts/native/rustc.txt
+          just check 2>&1 | tee artifacts/native/quality-gate.log
       - name: Verify devnet initialization
-        run: python3 scripts/devnet/test_setup.py
+        shell: bash
+        run: python3 scripts/devnet/test_setup.py 2>&1 | tee artifacts/native/initialization.log
+      - name: Upload native evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: m1-native-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/native/
+          retention-days: 30
+          if-no-files-found: warn
 
   devnet:
     runs-on: ubuntu-24.04
@@ -40,3 +54,11 @@ jobs:
         run: |
           docker compose logs --no-color --tail 200
           docker compose down --volumes
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: m1-devnet-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/m1/
+          retention-days: 30
+          if-no-files-found: warn
