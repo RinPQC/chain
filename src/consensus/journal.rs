@@ -113,8 +113,12 @@ impl Journal {
 	pub fn block(&self, value: Value) -> Result<Option<Vec<u8>>> {
 		self.get(&[b"b".as_slice(), &value.0].concat())
 	}
+	/// Store only an executed proposal or an independently certified sync payload.
+	pub fn save_block(&self, value: Value, block: &[u8]) -> Result<()> {
+		self.put_once(&[b"b".as_slice(), &value.0].concat(), block)
+	}
 	pub fn save_part(&self, part: &Part) -> Result<()> {
-		self.put_once(&[b"b".as_slice(), &part.proposal.value.0].concat(), &part.block)?;
+		self.save_block(part.proposal.value, &part.block)?;
 		let key = [
 			b"p".as_slice(),
 			&part.proposal.height.0.to_be_bytes(),

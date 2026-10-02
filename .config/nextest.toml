@@ -1,0 +1,6 @@
+# Each case starts several real validator processes. Reserve the runner's full test
+# budget so independent networks and the full-pool cryptography test do not compete.
+# https://nexte.st/docs/configuration/threads-required/
+[[profile.default.overrides]]
+filter = 'binary(consensus_network)'
+threads-required = "num-test-threads"

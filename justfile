@@ -20,7 +20,7 @@ build:
 	cargo build --workspace --locked
 
 lint:
-	cargo clippy --workspace --exclude libp2p-dns --exclude netlink-packet-core --all-targets --locked -- -D warnings
+	cargo clippy --workspace --exclude libp2p-dns --exclude netlink-packet-core --exclude arc-malachitebft-discovery --all-targets --locked -- -D warnings
 
 test:
 	cargo nextest run --workspace --locked

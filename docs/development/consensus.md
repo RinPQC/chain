@@ -1,6 +1,6 @@
 # Running the M1 consensus node
 
-The node now runs the pinned Malachite engine with four fixed, equal-power validators, classical Ed25519 signatures and authenticated TCP/libp2p connections. Validated payment blocks and empty blocks use the same proposal, vote, certificate and durable-commit path. A bounded local payment queue now gossips transactions between validators. Payment RPC and historical synchronization remain upcoming work.
+The node now runs the pinned Malachite engine with four fixed, equal-power validators, classical Ed25519 signatures and authenticated TCP/libp2p connections. Validated payment blocks and empty blocks use the same proposal, vote, certificate and durable-commit path. A bounded local payment queue now gossips transactions between validators. Validators can [synchronize verified history](synchronization.md); payment RPC remains upcoming work.
 
 ## First local network
 
@@ -64,7 +64,7 @@ kill -INT "${node_pids[@]}"
 wait "${node_pids[@]}"
 ```
 
-For a restart, reuse the same files and run `start` again; do not rerun keygen or delete recovery data. Until #11, nodes cannot catch up on missed committed heights. Stop/restart the entire development network at a common observed committed height. If one node falls behind, preserve its data for diagnosis and use a fresh disposable network rather than resetting a validator's WAL or copying only its balances.
+For a restart, reuse the same files and run `start` again; do not rerun keygen or delete recovery data. A returning validator now downloads and verifies missed history while peers keep producing blocks. See the [synchronization and signing-readiness contract](synchronization.md). Missing or inconsistent recovery files still refuse startup; never reset a used validator's WAL or copy only its balances.
 
 `RUST_LOG=info` enables upstream diagnostic logs. `COMMITTED` is emitted only after the application store confirms durability. These logs are the initial operational interface; stable metrics and payment RPC are later work.
 
@@ -109,7 +109,7 @@ Vote extensions are disabled. Proposal POL metadata is authenticated; the earlie
 
 Network/WAL codecs wrap pinned Borsh representations in `RINPQC-NET || 0x00 || 0x01 || chain_id || type_tag`, with a 2 MiB envelope limit, exact consumption and no accepted trailing bytes. Tags 1–3 and 5–8 retain their existing durable/consensus meanings. Tag 4 (old proposal-only streams) is retired and rejected. Tag 9 encodes application gossip streams; tag 10 encodes their typed parts (proposal or fixed-size payment). All peers must use this version together; mixed old/new transport versions cannot exchange proposal payloads. Existing payment encodings, signatures and durable proposal records are unchanged; no automatic reset or migration of inconsistent recovery files is performed. Application block/transaction encodings remain unchanged. Changing these encodings or the upstream Borsh representations requires an explicit compatibility/version review.
 
-Historical sync is disabled, and its required network codec methods reject every payload. #11 must implement authenticated catch-up; retaining blocks and certificates does not by itself provide it.
+Historical sync uses the default Malachite value-sync actor with single-height requests and independently verified certificates/execution. Tags 11–14 and the complete recovery contract are described in [verified history synchronization](synchronization.md).
 
 ## Durable decisions and signing readiness
 
@@ -129,4 +129,4 @@ Payloads, certificates and signing history are retained without pruning, and rec
 
 `just check` includes real subprocess/loopback tests for equal finalized state, payments exactly once, empty blocks, coordinated restart, replacement of a missing initial proposer, no finalization with two validators, and active-height WAL restart. Unit tests cover duplicate/conflicting/regressed signatures, chain/type/POL binding, invalid proposals, quorum/duplicate signers, interrupted certified commits and bounded codec rejection.
 
-This completes the initial consensus integration boundary. The network is disposable and still lacks historical catch-up (#11), payment RPC/CLI (#12), the full devnet tooling (#13) and the wider fault/acceptance suite (#14). Test coverage is evidence for these traces, not a proof of consensus correctness or a production-readiness claim.
+This completes the initial consensus integration boundary. The network is disposable and still lacks payment RPC/CLI (#12), the full devnet tooling (#13) and the wider fault/acceptance suite (#14). Test coverage is evidence for these traces, not a proof of consensus correctness or a production-readiness claim.

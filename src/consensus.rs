@@ -4,6 +4,7 @@ mod codec;
 mod journal;
 mod node;
 mod signing;
+mod sync;
 mod types;
 pub use node::{initialize, load_payments, run};
 

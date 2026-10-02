@@ -1,6 +1,6 @@
 # Temporary network dependency compatibility patches
 
-These patches remove the dependency findings tracked in [#20](https://github.com/RinPQC/chain/issues/20) while retaining the approved Malachite revision and libp2p 0.56 integration. They are committed source dependencies, not renamed registry releases. `[patch.crates-io]` makes their use explicit; their package versions satisfy upstream consumers' existing semver requirements.
+These patches address dependency findings tracked in [#20](https://github.com/RinPQC/chain/issues/20) and the persistent-peer reconnect defect found during [#11](https://github.com/RinPQC/chain/issues/11), while retaining the approved Malachite revision and libp2p 0.56 integration. They are committed source dependencies, not renamed registry releases. Cargo patch sections make their use explicit; their package versions satisfy upstream consumers' existing semver requirements.
 
 ## DNS adapter
 
@@ -12,8 +12,16 @@ Two upstream tests require live external DNS and are explicitly ignored in the d
 
 `netlink-packet-core/` derives from the published [netlink-packet-core 0.8.2](https://crates.io/crates/netlink-packet-core/0.8.2) source. Its `paste` dependency aliases maintained `pastey` 0.2.3; the packet implementation is unchanged. The route example doctest imports are updated for the current route API. The unused example targets are omitted; the test-only route dependency uses 0.28 to match the current network stack. MIT license and README are retained. The upstream packet/macro tests run in the workspace.
 
+## Malachite discovery
+
+`malachite-discovery/` is copied from `code/crates/discovery` at the approved [Malachite revision](https://github.com/circlefin/malachite/tree/72143f6c99a98452b587e1c392bdb80944eb2232/code/crates/discovery), version 0.8.0. The original Apache-2.0 license and source are retained. `Cargo.toml.orig` records the upstream manifest; the active manifest expands its workspace dependencies and pins metrics to the same revision.
+
+The source change is confined to `src/handlers/close.rs`; [reconnect.patch](malachite-discovery/reconnect.patch) records the exact change and regression test. Upstream disconnect cleanup clears a bootstrap node's learned peer ID even when its multiaddress explicitly pins `/p2p/<id>`. In persistent-only mode this can reject a legitimate inbound reconnect from an ephemeral source port. Cleanup now restores the configured identity, while unpinned, learned identities continue to be cleared. The test verifies repeated cleanup, rejection of another identity and unchanged behavior for unpinned addresses. The node keeps `persistent_peers_only = true` and discovery disabled.
+
+The override is scoped to `arc-malachitebft-discovery` through `[patch."https://github.com/circlefin/malachite"]`; no consensus, signing, quorum or sync state-machine source is patched. Both the discovery tests and the end-to-end offline-validator scenario run in the workspace gate. Remove this override when an approved upstream revision contains the equivalent reconnect fix.
+
 ## Maintenance
 
 The sources are workspace members so their unit tests and doctests run in `just check`. They retain upstream formatting and lint policy; our formatting and Clippy gates apply to first-party Rust code. Cargo-deny still checks the complete resolved graph, including these packages, with no advisory ignores. Changes to patches require their tests and a full locked gate.
 
-Remove both local overrides when an approved upstream Malachite/libp2p dependency graph supplies compatible fixes without these patches. Review source differences, restore registry dependencies, regenerate Cargo.lock and repeat the gate. Do not remove an override merely because a newer incompatible crate exists.
+Remove local overrides when an approved upstream Malachite/libp2p dependency graph supplies the corresponding compatible fixes. Review source differences, restore registry dependencies, regenerate Cargo.lock and repeat the gate. Do not remove an override merely because a newer incompatible crate exists.

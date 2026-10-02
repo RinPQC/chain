@@ -1,6 +1,11 @@
 [workspace]
 default-members = ["."]
-members = [".", "vendor/libp2p-dns", "vendor/netlink-packet-core"]
+members = [
+	".",
+	"vendor/libp2p-dns",
+	"vendor/malachite-discovery",
+	"vendor/netlink-packet-core",
+]
 resolver = "2"
 
 [workspace.dependencies]
@@ -9,6 +14,7 @@ malachitebft-app-channel = { package = "arc-malachitebft-app-channel", version =
 malachite-core = { package = "arc-malachitebft-core-consensus", version = "=0.8.0", git = "https://github.com/circlefin/malachite", rev = "72143f6c99a98452b587e1c392bdb80944eb2232", features = ["borsh"] }
 malachite-runtime = { package = "arc-malachitebft-engine", version = "=0.8.0", git = "https://github.com/circlefin/malachite", rev = "72143f6c99a98452b587e1c392bdb80944eb2232", features = ["borsh"] }
 malachite-signing = { package = "arc-malachitebft-signing", version = "=0.8.0", git = "https://github.com/circlefin/malachite", rev = "72143f6c99a98452b587e1c392bdb80944eb2232" }
+malachite-sync = { package = "arc-malachitebft-sync", version = "=0.8.0", git = "https://github.com/circlefin/malachite", rev = "72143f6c99a98452b587e1c392bdb80944eb2232" }
 malachite-types = { package = "arc-malachitebft-core-types", version = "=0.8.0", git = "https://github.com/circlefin/malachite", rev = "72143f6c99a98452b587e1c392bdb80944eb2232", features = ["borsh"] }
 
 [package]
@@ -33,6 +39,7 @@ libp2p-identity = { version = "0.2", features = ["ed25519", "peerid"] }
 malachite-core.workspace = true
 malachite-runtime.workspace = true
 malachite-signing.workspace = true
+malachite-sync.workspace = true
 malachite-types.workspace = true
 malachitebft-app-channel.workspace = true
 rand_core = { version = "0.6.4", features = ["getrandom"] }
@@ -59,3 +66,11 @@ netlink-packet-core = { path = "vendor/netlink-packet-core" }
 
 [dev-dependencies]
 tempfile = "3"
+
+[patch."https://github.com/circlefin/malachite"]
+arc-malachitebft-discovery = { path = "vendor/malachite-discovery" }
+
+# Keep real cryptographic verification practical in debug multi-node tests.
+# Overflow checks and debug assertions retain the development profile defaults.
+[profile.dev.package.curve25519-dalek]
+opt-level = 3

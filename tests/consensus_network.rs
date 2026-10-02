@@ -102,25 +102,25 @@ impl Network {
 			if Some(i) == excluded {
 				continue;
 			}
-			let mut cmd = Command::new(env!("CARGO_BIN_EXE_rinpqc-node"));
-			cmd.arg("start").arg(self.dir.path().join(format!("node{i}.toml")));
-			// Only the fourth scheduled proposer receives the local input. Inclusion by
-			// height two therefore requires propagation to another proposer.
-			if payments && i == self.submitter {
-				cmd.arg(self.dir.path().join("payments.bin"));
-			}
-			let child = cmd
-				.stdout(Stdio::from(
-					fs::File::create(self.dir.path().join(format!("out{i}.log"))).unwrap(),
-				))
-				.stderr(Stdio::from(
-					fs::File::create(self.dir.path().join(format!("err{i}.log"))).unwrap(),
-				))
-				.spawn()
-				.unwrap();
+			let child = self.start_node(i, payments);
 			children.push((i, child));
 		}
 		Running { children, dir: self.dir.path().to_path_buf() }
+	}
+	fn start_node(&self, i: usize, payments: bool) -> Child {
+		let mut cmd = Command::new(env!("CARGO_BIN_EXE_rinpqc-node"));
+		cmd.arg("start").arg(self.dir.path().join(format!("node{i}.toml")));
+		// Only the fourth scheduled proposer receives the local input. Inclusion by
+		// height two therefore requires propagation to another proposer.
+		if payments && i == self.submitter {
+			cmd.arg(self.dir.path().join("payments.bin"));
+		}
+		cmd.stdout(Stdio::from(
+			fs::File::create(self.dir.path().join(format!("out{i}.log"))).unwrap(),
+		))
+		.stderr(Stdio::from(fs::File::create(self.dir.path().join(format!("err{i}.log"))).unwrap()))
+		.spawn()
+		.unwrap()
 	}
 	fn states(&self, excluded: Option<usize>) -> Vec<rinpqc_node::application::execution::Ledger> {
 		(0..4)
@@ -140,16 +140,18 @@ impl Network {
 }
 impl Running {
 	fn wait(&mut self, height: u64) {
-		let until = Instant::now() + Duration::from_secs(55);
+		// This is a bounded integration-test deadline, not a consensus latency target.
+		let until = Instant::now() + Duration::from_secs(120);
 		loop {
 			let mut ready = true;
 			for (i, child) in &mut self.children {
 				let errors = fs::read_to_string(self.dir.join(format!("err{i}.log"))).unwrap();
 				assert!(child.try_wait().unwrap().is_none(), "node {i} exited: {errors}");
 				let logs = fs::read_to_string(self.dir.join(format!("out{i}.log"))).unwrap();
-				ready &= logs.contains(&format!("COMMITTED height={height} "));
+				let committed = logs.contains(&format!("COMMITTED height={height} "));
+				ready &= committed;
 				assert!(
-					Instant::now() < until,
+					committed || Instant::now() < until,
 					"node {i} failed to commit {height}: {logs}\n{errors}"
 				);
 			}
@@ -237,4 +239,140 @@ fn two_validators_cannot_finalize_and_can_restart_their_active_wal() {
 		);
 	}
 	assert_ne!(Some(removed), excluded);
+}
+
+fn signed_history(network: &Network, index: usize) -> std::collections::BTreeMap<Vec<u8>, Vec<u8>> {
+	use redb::{ReadableDatabase, TableDefinition};
+	let database =
+		redb::Database::open(network.dir.path().join(format!("node{index}/consensus.redb")))
+			.unwrap();
+	let read = database.begin_read().unwrap();
+	let table = read.open_table(TableDefinition::<&[u8], &[u8]>::new("consensus_v1")).unwrap();
+	table
+		.range(b"s".as_slice()..b"t".as_slice())
+		.unwrap()
+		.map(|entry| {
+			let (key, value) = entry.unwrap();
+			(key.value().to_vec(), value.value().to_vec())
+		})
+		.collect()
+}
+fn certified_height(network: &Network, index: usize) -> u64 {
+	use redb::{ReadableDatabase, TableDefinition};
+	let database =
+		redb::Database::open(network.dir.path().join(format!("node{index}/consensus.redb")))
+			.unwrap();
+	let read = database.begin_read().unwrap();
+	let table = read.open_table(TableDefinition::<&[u8], &[u8]>::new("consensus_v1")).unwrap();
+	table
+		.range(b"c".as_slice()..b"d".as_slice())
+		.unwrap()
+		.map(|entry| {
+			let (key, _) = entry.unwrap();
+			u64::from_be_bytes(key.value()[1..].try_into().unwrap())
+		})
+		.max()
+		.unwrap_or(0)
+}
+fn stop_one(nodes: &mut Running, index: usize) {
+	let position = nodes.children.iter().position(|(i, _)| *i == index).unwrap();
+	let child = &mut nodes.children[position].1;
+	assert!(Command::new("kill")
+		.args(["-INT", &child.id().to_string()])
+		.status()
+		.unwrap()
+		.success());
+	let until = Instant::now() + Duration::from_secs(10);
+	loop {
+		if let Some(status) = child.try_wait().unwrap() {
+			assert!(status.success(), "node {index} failed planned shutdown: {status}");
+			break;
+		}
+		assert!(Instant::now() < until, "node {index} did not finish planned shutdown");
+		thread::sleep(Duration::from_millis(10));
+	}
+	nodes.children.remove(position);
+}
+fn assert_common_history(network: &Network, height: u64) {
+	let stores: Vec<_> = (0..4)
+		.map(|i| {
+			Store::open(
+				&network.dir.path().join(format!("node{i}/application.redb")),
+				&network.genesis,
+			)
+			.unwrap()
+		})
+		.collect();
+	for store in &stores {
+		assert!(store.ledger().unwrap().height() >= height);
+		assert_eq!(store.ledger().unwrap().account(&network.tx.transfer.sender).balance, 70);
+		assert_eq!(store.ledger().unwrap().account(&network.tx.transfer.sender).next_nonce, 1);
+		assert_eq!(store.ledger().unwrap().account(&network.tx.transfer.recipient).balance, 30);
+		assert_eq!(
+			store.receipt(&network.tx.transfer.id()).unwrap(),
+			stores[0].receipt(&network.tx.transfer.id()).unwrap()
+		);
+		for h in 1..=height {
+			assert_eq!(store.block(h).unwrap(), stores[0].block(h).unwrap());
+		}
+	}
+}
+#[test]
+fn fresh_and_returning_validator_resume_verified_history_while_peers_keep_producing() {
+	let network = Network::new();
+	let late = network.first;
+	let mut peers = network.start(Some(late), true);
+	peers.wait(6);
+	// This identity has never run before; its private directory still contains only genesis.
+	let mut joining = Running {
+		children: vec![(late, network.start_node(late, false))],
+		dir: network.dir.path().to_path_buf(),
+	};
+	joining.wait(1);
+	// Planned interruption drains the engine; Drop remains emergency crash cleanup.
+	stop_one(&mut joining, late);
+	drop(joining);
+	let checkpoint = {
+		let store = Store::open(
+			&network.dir.path().join(format!("node{late}/application.redb")),
+			&network.genesis,
+		)
+		.unwrap();
+		store.ledger().unwrap().height()
+	};
+	assert!((1..6).contains(&checkpoint), "did not interrupt an incomplete download: {checkpoint}");
+	// A crash can occur after the certificate is durable but before application commit.
+	let certified = certified_height(&network, late);
+	assert!((checkpoint..=checkpoint + 1).contains(&certified));
+	let prior_signatures = signed_history(&network, late);
+	peers.wait(8);
+	peers.children.push((late, network.start_node(late, false)));
+	peers.wait(10);
+	let logs = fs::read_to_string(network.dir.path().join(format!("out{late}.log"))).unwrap();
+	assert!(logs.contains(&format!("SIGNING_READY next_height={}", certified + 1)), "{logs}");
+	assert!(logs.contains("SYNC_VERIFIED"), "{logs}");
+	// Take a participating validator offline once more while the other three continue.
+	stop_one(&mut peers, late);
+	let before = signed_history(&network, late);
+	for (slot, value) in prior_signatures {
+		assert_eq!(before.get(&slot), Some(&value));
+	}
+	peers.wait(12);
+	peers.children.push((late, network.start_node(late, false)));
+	peers.wait(15);
+	// Require its vote for further progress, rather than mistaking passive catch-up for readiness.
+	let other = (0..4).find(|i| *i != late).unwrap();
+	stop_one(&mut peers, other);
+	peers.wait(19);
+	drop(peers);
+	assert_common_history(&network, 15);
+	let after = signed_history(&network, late);
+	for (slot, value) in before {
+		assert_eq!(after.get(&slot), Some(&value));
+	}
+	assert!(
+		after.keys().any(|key| u64::from_be_bytes(key[1..9].try_into().unwrap()) >= 14),
+		"validator did not resume signing after catch-up: {}",
+		fs::read_to_string(network.dir.path().join(format!("out{late}.log"))).unwrap()
+	);
 }

@@ -1,6 +1,6 @@
 # Building the M1 workspace
 
-The workspace contains the unpublished node package, `rinpqc-node`, and two temporary network compatibility patches described below. Modules separate deterministic application logic, the Malachite adapter, and infrastructure. The payment executor, durable store and running consensus adapter live behind these module boundaries. Split crates only when an actual dependency boundary requires it.
+The workspace contains the unpublished node package, `rinpqc-node`, and three temporary network patches described below. Modules separate deterministic application logic, the Malachite adapter, and infrastructure. The payment executor, durable store and running consensus adapter live behind these module boundaries. Split crates only when an actual dependency boundary requires it.
 
 ## Prerequisites
 
@@ -45,6 +45,10 @@ cargo run --locked -- --version
 Rust builds use 1.93.0; only formatting uses `nightly-2026-01-23` because import grouping and comment wrapping need unstable rustfmt options. Pinning the formatter prevents formatting drift. Keep both toolchain pins synchronized between the justfile, toolchain file, CI and these instructions when updating them. Taplo sorts keys and arrays; avoid applying it to future TOML arrays whose ordering has application meaning without a scoped exception.
 
 Running without arguments, with an incomplete `start`, or with unsupported arguments exits unsuccessfully. Help/version create no state. The [identity commands](identities.md) create keys and initialize bound recovery data; `start <config>` runs a validator. Follow the [four-node walkthrough](consensus.md) for the current network and restart limits. The test suite includes real loopback consensus processes, not just CLI argument checks.
+
+Network subprocess tests reserve the full nextest test-thread budget through `.config/nextest.toml`. Each case already runs several validators; this prevents unrelated networks and expensive cryptography tests from starving each other on small CI runners. Their bounded progress deadline is a test harness limit, not a consensus latency claim.
+
+The development profile optimizes `curve25519-dalek` so real signature checks and transport handshakes remain practical when several debug nodes share a small runner. Debug assertions and overflow checks remain enabled; the signature scheme and verification rules are unchanged. This is not a production performance benchmark.
 
 ## Dependencies and licenses
 

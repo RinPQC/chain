@@ -3,10 +3,10 @@ use super::{
 	engine::app::{
 		consensus::LivenessMsg,
 		types::{
-			codec::{Codec as EngineCodec, HasEncodedLen},
+			codec::Codec as EngineCodec,
 			core::{CommitCertificate, PolkaCertificate, ValidatorProof},
 			streaming::StreamMessage,
-			sync, ProposedValue, SignedConsensusMsg,
+			ProposedValue, SignedConsensusMsg,
 		},
 	},
 	types::*,
@@ -21,7 +21,7 @@ pub const MAX_WIRE: usize = 2 * 1024 * 1024;
 pub struct Codec {
 	pub chain: Id,
 }
-fn invalid() -> io::Error {
+pub(super) fn invalid() -> io::Error {
 	io::Error::new(io::ErrorKind::InvalidData, "invalid consensus envelope")
 }
 impl Codec {
@@ -83,28 +83,5 @@ impl EngineCodec<ValidatorProof<Context>> for Codec {
 			return Err(invalid());
 		}
 		Ok(ValidatorProof::new(public_key, peer_id, signature))
-	}
-}
-// Historical synchronization is deliberately disabled until issue #11. The network actor
-// still requires these codec traits; rejecting every sync payload avoids a partial protocol.
-macro_rules! no_sync {
-	($type:ty) => {
-		impl EngineCodec<$type> for Codec {
-			type Error = io::Error;
-			fn encode(&self, _: &$type) -> io::Result<Bytes> {
-				Err(invalid())
-			}
-			fn decode(&self, _: Bytes) -> io::Result<$type> {
-				Err(invalid())
-			}
-		}
-	};
-}
-no_sync!(sync::Status<Context>);
-no_sync!(sync::Request<Context>);
-no_sync!(sync::Response<Context>);
-impl HasEncodedLen<sync::Response<Context>> for Codec {
-	fn encoded_len(&self, _: &sync::Response<Context>) -> io::Result<usize> {
-		Err(invalid())
 	}
 }
