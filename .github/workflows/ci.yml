@@ -29,6 +29,9 @@ jobs:
       - name: Verify devnet initialization
         shell: bash
         run: python3 scripts/devnet/test_setup.py 2>&1 | tee artifacts/native/initialization.log
+      - name: Verify signing crash recovery
+        shell: bash
+        run: just recovery-check 2>&1 | tee artifacts/native/signing-recovery.log
       - name: Upload native evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

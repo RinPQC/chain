@@ -2,7 +2,7 @@ use super::{
 	codec::Codec,
 	engine::app::{
 		consensus::Input,
-		engine::wal::encode_entry,
+		engine::wal::{encode_entry, log_entries},
 		types::{
 			codec::Codec as _,
 			core::{self, Context as _, NilOrVal, Round},
@@ -36,6 +36,8 @@ fn signer(dir: &std::path::Path, seed: u8) -> Signing {
 			.unwrap(),
 	);
 	Signing {
+		wal: Default::default(),
+		serial: Default::default(),
 		key,
 		journal,
 		verifier: Verification { chain },
@@ -82,6 +84,8 @@ async fn durable_signing_refuses_conflicts_regression_and_cross_chain_replay() {
 	let journal =
 		Arc::new(Journal::open(&dir.path().join("11.redb"), Codec { chain }, public).unwrap());
 	let s = Signing {
+		wal: Default::default(),
+		serial: Default::default(),
 		key: SecretKey::from_seed(&[11; 32], KeyRole::Validator),
 		journal,
 		verifier: Verification { chain },
@@ -96,6 +100,8 @@ async fn durable_signing_refuses_conflicts_regression_and_cross_chain_replay() {
 	let journal =
 		Arc::new(Journal::open(&dir.path().join("11.redb"), Codec { chain }, public).unwrap());
 	let s = Signing {
+		wal: Default::default(),
+		serial: Default::default(),
 		key: SecretKey::from_seed(&[11; 32], KeyRole::Validator),
 		journal,
 		verifier: Verification { chain },
@@ -684,4 +690,419 @@ async fn decision_crash_worker() {
 	}
 	// Skip destructors at each durable boundary; this is not a storage-device power cut.
 	std::process::exit(84);
+}
+
+fn write_recovery_wal(
+	path: &std::path::Path,
+	codec: &Codec,
+	messages: &[SignedConsensusMsg<Context>],
+) {
+	let mut log = wal::Log::open(path).unwrap();
+	log.reset(1).unwrap();
+	for msg in messages {
+		let input = match msg {
+			SignedConsensusMsg::Vote(v) => Input::Vote(v.clone()),
+			SignedConsensusMsg::Proposal(p) => Input::Proposal(p.clone()),
+		};
+		let mut raw = Vec::new();
+		encode_entry::<Context, _, _>(input, codec, &mut raw).unwrap();
+		log.append(raw).unwrap();
+	}
+	log.flush().unwrap();
+}
+
+#[tokio::test]
+async fn wal_first_recovery_authenticates_and_restores_only_a_monotonic_tail() {
+	let source_dir = tempfile::tempdir().unwrap();
+	let source = signer(source_dir.path(), 11);
+	let first = SignedConsensusMsg::Vote(source.sign_vote(vote(&source, 0)).await.unwrap());
+	let second = SignedConsensusMsg::Vote(source.sign_vote(vote(&source, 1)).await.unwrap());
+	let dir = tempfile::tempdir().unwrap();
+	let target = signer(dir.path(), 11);
+	let path = dir.path().join("engine.wal");
+	let ledger = Ledger::from_genesis(&genesis()).unwrap();
+	let validators = Validators::from_genesis(&genesis());
+	write_recovery_wal(&path, &target.journal.codec, std::slice::from_ref(&first));
+	// Legacy WAL-only entries are never silently adopted.
+	assert!(target
+		.journal
+		.recover_wal(&path, &ledger, &validators, target.key.public_key())
+		.await
+		.is_err());
+	assert!(target.journal.get(b"watermark").unwrap().is_none());
+	target.journal.put_once(b"recovery_policy", b"wal-first-v1").unwrap();
+	for messages in [vec![first.clone()], vec![first.clone(), second.clone()]] {
+		write_recovery_wal(&path, &target.journal.codec, &messages);
+		for _ in 0..2 {
+			target
+				.journal
+				.recover_wal(&path, &ledger, &validators, target.key.public_key())
+				.await
+				.unwrap();
+			target.journal.check_wal(&path, 0, target.key.public_key()).unwrap();
+		}
+		for msg in messages {
+			let slot = super::signing::signing_slot(&msg).unwrap();
+			assert_eq!(
+				target.journal.get(&[b"s".as_slice(), &slot].concat()).unwrap().unwrap(),
+				target.journal.codec.encode(&msg).unwrap()
+			);
+		}
+	}
+	// Never synthesize a WAL entry from a signature journal after losing engine history.
+	write_recovery_wal(&path, &target.journal.codec, &[first]);
+	assert!(target
+		.journal
+		.recover_wal(&path, &ledger, &validators, target.key.public_key())
+		.await
+		.is_err());
+}
+
+#[tokio::test]
+async fn wal_first_recovery_rejects_invalid_conflicting_or_corrupt_inputs_without_repair() {
+	let source_dir = tempfile::tempdir().unwrap();
+	let source = signer(source_dir.path(), 11);
+	let valid = source.sign_vote(vote(&source, 0)).await.unwrap();
+	let other_dir = tempfile::tempdir().unwrap();
+	let other = signer(other_dir.path(), 11);
+	let mut different = vote(&other, 0);
+	different.value = NilOrVal::Nil;
+	let different = other.sign_vote(different).await.unwrap();
+	for case in ["signature", "conflict", "checksum", "height", "missing"] {
+		let dir = tempfile::tempdir().unwrap();
+		let target = signer(dir.path(), 11);
+		target.journal.put_once(b"recovery_policy", b"wal-first-v1").unwrap();
+		let path = dir.path().join("engine.wal");
+		let mut message = valid.clone();
+		if case == "signature" {
+			message.signature[0] ^= 1;
+		}
+		if case == "height" {
+			message.message.height = Height(2);
+		}
+		let mut messages = vec![SignedConsensusMsg::Vote(message)];
+		if case == "conflict" {
+			messages.push(SignedConsensusMsg::Vote(different.clone()));
+		}
+		write_recovery_wal(&path, &target.journal.codec, &messages);
+		if case == "checksum" {
+			let mut bytes = std::fs::read(&path).unwrap();
+			*bytes.last_mut().unwrap() ^= 1;
+			std::fs::write(&path, bytes).unwrap();
+		}
+		if case == "missing" {
+			std::fs::remove_file(&path).unwrap();
+		}
+		assert!(
+			target
+				.journal
+				.recover_wal(
+					&path,
+					&Ledger::from_genesis(&genesis()).unwrap(),
+					&Validators::from_genesis(&genesis()),
+					target.key.public_key()
+				)
+				.await
+				.is_err(),
+			"{case}"
+		);
+		assert!(target.journal.get(b"watermark").unwrap().is_none(), "partial repair in {case}");
+	}
+}
+
+#[tokio::test]
+async fn wal_first_proposal_recovery_requires_the_valid_durable_payload() {
+	let g = genesis();
+	let validators = Validators::from_genesis(&g);
+	let address = Context.select_proposer(&validators, Height(1), Round::ZERO).0;
+	let seed = (11..=14)
+		.find(|seed| {
+			SecretKey::from_seed(&[*seed; 32], KeyRole::Validator).public_key() == address.0
+		})
+		.unwrap();
+	let source_dir = tempfile::tempdir().unwrap();
+	let source = signer(source_dir.path(), seed);
+	let raw = acceptance_block();
+	let ledger = Ledger::from_genesis(&g).unwrap();
+	let value = Value(ledger.validate_block(&raw).unwrap().block().header.id());
+	let signed = source
+		.sign_proposal(Proposal {
+			height: Height(1),
+			round: Round::ZERO,
+			pol_round: Round::Nil,
+			address,
+			value,
+		})
+		.await
+		.unwrap();
+	for (payload, corrupt_part) in [
+		(None, false),
+		(Some(vec![0]), false),
+		(Some(raw.clone()), false),
+		(Some(raw.clone()), true),
+	] {
+		let dir = tempfile::tempdir().unwrap();
+		let target = signer(dir.path(), seed);
+		target.journal.put_once(b"recovery_policy", b"wal-first-v1").unwrap();
+		if let Some(bytes) = &payload {
+			target.journal.save_block(value, bytes).unwrap();
+		}
+		let path = dir.path().join("engine.wal");
+		write_recovery_wal(
+			&path,
+			&target.journal.codec,
+			&[SignedConsensusMsg::Proposal(signed.clone())],
+		);
+		if corrupt_part {
+			let key = [
+				b"p".as_slice(),
+				&1u64.to_be_bytes(),
+				&0u32.to_be_bytes(),
+				&crate::crypto::hash(
+					b"RINPQC/PART-DESCRIPTOR/v1\0",
+					&borsh::to_vec(&signed.message).unwrap(),
+				),
+			]
+			.concat();
+			let part = Part {
+				proposal: signed.message.clone(),
+				block: vec![0],
+				signature: signed.signature,
+			};
+			target.journal.put_once(&key, &target.journal.codec.encode(&part).unwrap()).unwrap();
+		}
+		let result =
+			target.journal.recover_wal(&path, &ledger, &validators, target.key.public_key()).await;
+		if payload == Some(raw.clone()) && !corrupt_part {
+			result.unwrap();
+			let parts = target.journal.parts(Height(1), Round::ZERO).unwrap();
+			assert_eq!(parts.len(), 1);
+			assert_eq!(parts[0].block, raw);
+			assert_eq!(parts[0].signature, signed.signature);
+		} else {
+			assert!(result.is_err());
+			assert!(target.journal.get(b"watermark").unwrap().is_none());
+		}
+	}
+}
+
+async fn replay_effect(
+	effect: malachite_core::Effect<Context>,
+	signer: &Signing,
+	votes: &mut Vec<Vote>,
+) -> eyre::Result<malachite_core::Resume<Context>> {
+	use malachite_core::{Effect, Resumable};
+	Ok(match effect {
+		Effect::VerifySignature(msg, key, r) => {
+			let valid = match msg.message {
+				malachite_core::ConsensusMsg::Vote(v) => {
+					signer.verifier.verify_signed_vote(&v, &msg.signature, &key).await?
+				},
+				malachite_core::ConsensusMsg::Proposal(p) => {
+					signer.verifier.verify_signed_proposal(&p, &msg.signature, &key).await?
+				},
+			};
+			r.resume_with(valid.is_valid())
+		},
+		Effect::SignVote(v, r) => {
+			votes.push(v.clone());
+			r.resume_with(signer.sign_vote(v).await?)
+		},
+		Effect::CancelAllTimeouts(r)
+		| Effect::CancelTimeout(_, r)
+		| Effect::ScheduleTimeout(_, r)
+		| Effect::StartRound(_, _, _, _, r)
+		| Effect::PublishConsensusMsg(_, r)
+		| Effect::PublishLivenessMsg(_, r)
+		| Effect::RepublishVote(_, r)
+		| Effect::RepublishRoundCertificate(_, r)
+		| Effect::GetValue(_, _, _, r)
+		| Effect::RestreamProposal(_, _, _, _, _, r)
+		| Effect::WalAppend(_, _, r) => r.resume_with(()),
+		other => panic!("unexpected replay-test effect: {other:?}"),
+	})
+}
+
+async fn replay_input(
+	state: &mut malachite_core::State<Context>,
+	input: Input<Context>,
+	signer: &Signing,
+	metrics: &super::engine::app::metrics::Metrics,
+	votes: &mut Vec<Vote>,
+) {
+	let result: eyre::Result<()> = malachite_core::process!(input: input, state: state, metrics: metrics, with: effect => replay_effect(effect, signer, votes).await);
+	result.unwrap();
+}
+
+#[tokio::test]
+async fn replayed_wal_preserves_lock_against_a_conflicting_later_round_proposal() {
+	let g = genesis();
+	let validators = Validators::from_genesis(&g);
+	let seed_for = |index: usize| {
+		(11..=14)
+			.find(|seed| {
+				SecretKey::from_seed(&[*seed; 32], KeyRole::Validator).public_key()
+					== g.validators[index]
+			})
+			.unwrap()
+	};
+	let dir = tempfile::tempdir().unwrap();
+	let signers: Vec<_> = (0..4).map(|i| signer(dir.path(), seed_for(i))).collect();
+	let own = &signers[2]; // Neither round-zero nor round-one proposer.
+	let a = Value([3; 32]);
+	let b = Value([4; 32]);
+	let proposal = Proposal {
+		height: Height(1),
+		round: Round::ZERO,
+		pol_round: Round::Nil,
+		address: Address(g.validators[0]),
+		value: a,
+	};
+	let signed = signers[0].sign_proposal(proposal.clone()).await.unwrap();
+	let mut inputs = vec![
+		Input::Proposal(signed),
+		Input::ProposedValue(
+			malachite_core::ProposedValue {
+				height: Height(1),
+				round: Round::ZERO,
+				valid_round: Round::Nil,
+				proposer: proposal.address,
+				value: a,
+				validity: core::Validity::Valid,
+			},
+			core::ValueOrigin::Consensus,
+		),
+	];
+	for signer in &signers[..3] {
+		let v = Context.new_prevote(
+			Height(1),
+			Round::ZERO,
+			NilOrVal::Val(a),
+			Address(signer.key.public_key()),
+		);
+		inputs.push(Input::Vote(signer.sign_vote(v).await.unwrap()));
+	}
+	let precommit = own
+		.sign_vote(Context.new_precommit(
+			Height(1),
+			Round::ZERO,
+			NilOrVal::Val(a),
+			Address(own.key.public_key()),
+		))
+		.await
+		.unwrap();
+	inputs.push(Input::Vote(precommit));
+	let path = dir.path().join("replay.wal");
+	let mut log = wal::Log::open(&path).unwrap();
+	log.reset(1).unwrap();
+	for input in inputs {
+		let mut raw = Vec::new();
+		encode_entry::<Context, _, _>(input, &own.journal.codec, &mut raw).unwrap();
+		log.append(raw).unwrap();
+	}
+	log.flush().unwrap();
+	drop(log);
+	let params = malachite_core::Params {
+		address: Address(own.key.public_key()),
+		threshold_params: Default::default(),
+		value_payload: core::ValuePayload::ProposalAndParts,
+		enabled: false,
+	};
+	let mut state =
+		malachite_core::State::new(Context, Height(1), validators.clone(), params, 100, 100);
+	let mut votes = Vec::new();
+	let metrics = super::engine::app::metrics::Metrics::default();
+	replay_input(
+		&mut state,
+		Input::StartHeight(Height(1), validators.clone(), false, None, Default::default()),
+		own,
+		&metrics,
+		&mut votes,
+	)
+	.await;
+	let mut log = wal::Log::open(&path).unwrap();
+	for input in log_entries::<Context, _>(&mut log, &own.journal.codec).unwrap() {
+		replay_input(&mut state, input.unwrap(), own, &metrics, &mut votes).await;
+	}
+	let locked = state.driver.round_state().locked.as_ref().unwrap();
+	assert_eq!(locked.value, a);
+	assert_eq!(locked.round, Round::ZERO);
+	state.params.enabled = true;
+	// f+1 authenticated higher-round votes advance the driver without a quorum for B.
+	for signer in &signers[..2] {
+		let v = Context.new_prevote(
+			Height(1),
+			Round::new(1),
+			NilOrVal::Val(b),
+			Address(signer.key.public_key()),
+		);
+		replay_input(
+			&mut state,
+			Input::Vote(signer.sign_vote(v).await.unwrap()),
+			own,
+			&metrics,
+			&mut votes,
+		)
+		.await;
+	}
+	assert_eq!(state.driver.round(), Round::new(1));
+	let p = Proposal {
+		height: Height(1),
+		round: Round::new(1),
+		pol_round: Round::Nil,
+		address: Address(g.validators[1]),
+		value: b,
+	};
+	// Use a separate signer object only to construct this adversarial peer proposal: the
+	// peer's vote already occupies a later phase, which our local guard would reject.
+	let peer_dir = tempfile::tempdir().unwrap();
+	let peer = signer(peer_dir.path(), seed_for(1));
+	replay_input(
+		&mut state,
+		Input::Proposal(peer.sign_proposal(p.clone()).await.unwrap()),
+		own,
+		&metrics,
+		&mut votes,
+	)
+	.await;
+	replay_input(
+		&mut state,
+		Input::ProposedValue(
+			malachite_core::ProposedValue {
+				height: Height(1),
+				round: Round::new(1),
+				valid_round: Round::Nil,
+				proposer: p.address,
+				value: b,
+				validity: core::Validity::Valid,
+			},
+			core::ValueOrigin::Consensus,
+		),
+		own,
+		&metrics,
+		&mut votes,
+	)
+	.await;
+	assert_eq!(state.driver.round_state().locked.as_ref().unwrap().value, a);
+	assert!(votes.iter().any(|v| v.round == Round::new(1)
+		&& v.typ == core::VoteType::Prevote
+		&& v.value == NilOrVal::Nil));
+	assert!(!votes.iter().any(|v| v.round == Round::new(1) && v.value == NilOrVal::Val(b)));
+}
+
+#[tokio::test]
+async fn failed_signing_wal_never_releases_or_journals_the_signature() {
+	let dir = tempfile::tempdir().unwrap();
+	let s = signer(dir.path(), 11);
+	s.wal
+		.set(Box::new(|_| Box::pin(async { eyre::bail!("injected WAL flush failure") })))
+		.ok()
+		.unwrap();
+	assert!(s.sign_vote(vote(&s, 0)).await.is_err());
+	assert!(s.sign_vote(vote(&s, 1)).await.is_err());
+	let chain = s.verifier.chain;
+	let validator = s.key.public_key();
+	drop(s);
+	let journal = Journal::open(&dir.path().join("11.redb"), Codec { chain }, validator).unwrap();
+	assert!(journal.get(b"watermark").unwrap().is_none());
 }

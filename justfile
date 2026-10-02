@@ -38,3 +38,9 @@ check: fmt-check build lint test deny
 # Real key/config initialization without a container daemon.
 devnet-check: build
 	python3 scripts/devnet/test_setup.py
+
+# Explicit test-only build; never use this feature for normal operation.
+recovery-check:
+	cargo build --locked -p rinpqc-node --features fault-injection
+	cargo clippy --locked -p rinpqc-node --features fault-injection --all-targets -- -D warnings
+	cargo nextest run --locked -p rinpqc-node --features fault-injection -E 'test(signing_crashes_and_interrupted_recovery)' --success-output immediate

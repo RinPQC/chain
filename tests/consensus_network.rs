@@ -111,7 +111,11 @@ impl Network {
 		Running { children, dir: self.dir.path().to_path_buf() }
 	}
 	fn start_node(&self, i: usize, payments: bool) -> Child {
+		self.start_node_with_fault(i, payments, &[])
+	}
+	fn start_node_with_fault(&self, i: usize, payments: bool, fault: &[(&str, &str)]) -> Child {
 		let mut cmd = Command::new(env!("CARGO_BIN_EXE_rinpqc-node"));
+		cmd.envs(fault.iter().copied());
 		cmd.arg("start").arg(self.dir.path().join(format!("node{i}.toml")));
 		// Only the fourth scheduled proposer receives the local input. Inclusion by
 		// height two therefore requires propagation to another proposer.
@@ -608,4 +612,186 @@ fn invalid_payments_and_concurrent_double_spend_have_one_durable_winner() {
 		stop_one(&mut nodes, index);
 	}
 	check();
+}
+
+#[cfg(feature = "fault-injection")]
+fn await_injected_exit(network: &Network, node: usize, mut child: Child) -> (Vec<u8>, String) {
+	let deadline = Instant::now() + Duration::from_secs(40);
+	loop {
+		if let Some(status) = child.try_wait().unwrap() {
+			let logs =
+				fs::read_to_string(network.dir.path().join(format!("out{node}.log"))).unwrap();
+			let errors =
+				fs::read_to_string(network.dir.path().join(format!("err{node}.log"))).unwrap();
+			assert_eq!(status.code(), Some(86), "expected injected exit: {logs}\n{errors}");
+			let signed = logs
+				.lines()
+				.find_map(|line| {
+					line.strip_prefix("FAULT ").and_then(|v| v.split("signed=").nth(1))
+				})
+				.unwrap();
+			let value = logs
+				.lines()
+				.find_map(|line| {
+					line.strip_prefix("FAULT ")
+						.and_then(|v| v.split("value=").nth(1))
+						.and_then(|v| v.split_whitespace().next())
+				})
+				.unwrap()
+				.to_owned();
+			return (hex::decode(signed).unwrap(), value);
+		}
+		if Instant::now() >= deadline {
+			let _ = child.kill();
+			let _ = child.wait();
+			panic!(
+				"fault not reached: {}\n{}",
+				fs::read_to_string(network.dir.path().join(format!("out{node}.log"))).unwrap(),
+				fs::read_to_string(network.dir.path().join(format!("err{node}.log"))).unwrap()
+			);
+		}
+		thread::sleep(Duration::from_millis(20));
+	}
+}
+
+#[cfg(feature = "fault-injection")]
+#[test]
+fn signing_crashes_and_interrupted_recovery_restore_required_quorum() {
+	for round in [0, 1] {
+		for phase in ["proposal", "prevote", "precommit"] {
+			for stage in ["before_wal", "after_wal", "after_journal"] {
+				let network = Network::new();
+				let victim = if round == 0 {
+					network.first
+				} else {
+					(0..4)
+						.find(|i| {
+							rinpqc_node::infrastructure::load_key(
+								&network.dir.path().join(format!("validator{i}.key")),
+								KeyRole::Validator,
+							)
+							.unwrap()
+							.public_key() == network.genesis.validators[1]
+						})
+						.unwrap()
+				};
+				let absent = if round == 1 {
+					network.first
+				} else {
+					(0..4).find(|i| *i != victim && *i != network.submitter).unwrap()
+				};
+				let round_text = round.to_string();
+				let fault = [
+					("RINPQC_FAULT", stage),
+					("RINPQC_FAULT_PHASE", phase),
+					("RINPQC_FAULT_ROUND", round_text.as_str()),
+				];
+				let mut peers = Running { children: vec![], dir: network.dir.path().to_path_buf() };
+				for i in 0..4 {
+					if i != victim && i != absent {
+						peers.children.push((i, network.start_node(i, true)));
+					}
+				}
+				let (signed, value) = await_injected_exit(
+					&network,
+					victim,
+					network.start_node_with_fault(victim, true, &fault),
+				);
+				let prior = signed_history(&network, victim);
+				if stage == "after_wal" {
+					let recovery_fault = [
+						("RINPQC_FAULT", "recovered_entry"),
+						("RINPQC_FAULT_PHASE", phase),
+						("RINPQC_FAULT_ROUND", round_text.as_str()),
+					];
+					assert_eq!(
+						signed,
+						await_injected_exit(
+							&network,
+							victim,
+							network.start_node_with_fault(victim, true, &recovery_fault)
+						)
+						.0
+					);
+				}
+				if phase == "proposal" && stage != "before_wal" {
+					let recovery_fault = [
+						("RINPQC_FAULT", "recovered_part"),
+						("RINPQC_FAULT_PHASE", phase),
+						("RINPQC_FAULT_ROUND", round_text.as_str()),
+					];
+					// Repeating the same recovery must remain idempotent even across another crash.
+					for _ in 0..2 {
+						assert_eq!(
+							signed,
+							await_injected_exit(
+								&network,
+								victim,
+								network.start_node_with_fault(victim, true, &recovery_fault)
+							)
+							.0
+						);
+					}
+				}
+				peers.children.push((victim, network.start_node(victim, true)));
+				peers.wait(3); // Only three identities are online: the recovered vote is required.
+				for i in (0..4).filter(|i| *i != absent) {
+					stop_one(&mut peers, i);
+				}
+				let after = signed_history(&network, victim);
+				for (slot, value) in prior {
+					assert_eq!(after.get(&slot), Some(&value));
+				}
+				if stage != "before_wal" {
+					assert!(
+						after.values().any(|v| *v == signed),
+						"lost crash-boundary signing commitment"
+					);
+				}
+				let stores: Vec<_> = (0..4)
+					.filter(|i| *i != absent)
+					.map(|i| {
+						Store::open(
+							&network.dir.path().join(format!("node{i}/application.redb")),
+							&network.genesis,
+						)
+						.unwrap()
+					})
+					.collect();
+				for store in &stores {
+					assert_eq!(
+						store.ledger().unwrap().account(&network.tx.transfer.sender).balance,
+						70
+					);
+					assert_eq!(
+						store.ledger().unwrap().account(&network.tx.transfer.sender).next_nonce,
+						1
+					);
+					assert_eq!(
+						store.ledger().unwrap().account(&network.tx.transfer.recipient).balance,
+						30
+					);
+					assert_eq!(
+						store.receipt(&network.tx.transfer.id()).unwrap(),
+						stores[0].receipt(&network.tx.transfer.id()).unwrap()
+					);
+					if phase == "precommit" && stage != "before_wal" {
+						let block = store.block(1).unwrap().unwrap();
+						assert_eq!(
+							hex::encode(rinpqc_node::crypto::hash(
+								b"RINPQC/BLOCK/v1\0",
+								&block[..rinpqc_node::application::execution::HEADER_LEN]
+							)),
+							value,
+							"restart lost the locked value"
+						);
+					}
+					for h in 1..=3 {
+						assert_eq!(store.block(h).unwrap(), stores[0].block(h).unwrap());
+					}
+				}
+				println!("PASS crash stage={stage} phase={phase} round={round}: required quorum restored");
+			}
+		}
+	}
 }
