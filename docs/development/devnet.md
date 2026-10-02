@@ -53,7 +53,7 @@ scripts/devnet.sh down
 scripts/devnet.sh up
 ```
 
-Compose sends SIGINT, allowing the host to stop at a message boundary. Data volumes and identity files survive all these commands. `up` reuses initialized data and checks its chain/identity binding; it never silently regenerates keys or repairs partial initialization. Restarted nodes use their retained WAL/signing history and verify missed blocks. The existing fail-closed signature-before-WAL crash window still applies to hard kills or host failure: synchronization is not permission to bypass an unsafe signing history. See [recovery limits](synchronization.md).
+Compose sends SIGINT. The host stops accepting new work, lets the consensus actor finish its current handler while keeping host replies available, and flushes the WAL before stopping the parent engine. A bounded shutdown timeout is reported as an error; startup still checks signing-history consistency. Data volumes and identity files survive all these commands. `up` reuses initialized data and checks its chain/identity binding; it never silently regenerates keys or repairs partial initialization. Restarted nodes use their retained WAL/signing history and verify missed blocks. The existing fail-closed signature-before-WAL crash window still applies to hard kills or host failure: synchronization is not permission to bypass an unsafe signing history. See [recovery limits](synchronization.md).
 
 ## Initial proposer outage and fresh-validator catch-up
 
@@ -83,7 +83,7 @@ scripts/devnet.sh status
 scripts/devnet.sh reconnect node0 node1
 ```
 
-Disconnecting a node removes its consensus bridge interface while preserving the process, volume and loopback RPC. These commands isolate node0 and node1 individually, leaving only node2/node3 connected: no component has three validators, so new finality must stop after already certified/in-flight decisions settle. This is isolation, not simulated packet loss or a two-by-two topology. Reconnect restores the original static addresses; peers retry and verified synchronization repairs missed history. No firewall rules or host networks are modified.
+Disconnecting a node removes its consensus bridge interface while preserving the process, volume and loopback RPC. These commands isolate node0 and node1 individually, leaving only node2/node3 connected: no component has three validators, so new finality must stop after already certified/in-flight decisions settle. This is isolation, not simulated packet loss or a two-by-two topology. Reconnect restores the original static addresses; peers retry and verified synchronization repairs missed history. The scripts manage only the dedicated Compose bridge; they do not invoke host firewall commands.
 
 Inspect every node's metrics before and after reconnect. Increasing rounds without increasing committed height indicate unavailable finality; an RPC healthcheck alone cannot detect that. A command against an already disconnected/connected node can fail visibly; inspect the network state rather than resetting data to clear it.
 

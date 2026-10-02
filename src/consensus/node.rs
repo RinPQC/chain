@@ -333,6 +333,23 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 		.with_default_request(RequestContext::new(32))
 		.build()
 		.await?;
+	let children = handle.actor.get_cell().get_children();
+	let consensus_actor = children
+		.iter()
+		.find(|cell| {
+			cell.is_message_type_of::<malachite_runtime::consensus::Msg<Context>>() == Some(true)
+		})
+		.cloned()
+		.ok_or_else(|| eyre!("consensus actor missing"))?;
+	let wal_actor = children
+		.iter()
+		.find(|cell| {
+			cell.is_message_type_of::<malachite_runtime::wal::Msg<Context>>() == Some(true)
+		})
+		.cloned()
+		.ok_or_else(|| eyre!("WAL actor missing"))?;
+	let mut stopping = false;
+	let mut stop_deadline = tokio::time::Instant::now();
 	let mut active_round = Round::ZERO;
 	let mut gossip_tick = tokio::time::interval(Duration::from_millis(250));
 	gossip_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -350,7 +367,9 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 					if let Some(call) = call {
 						if call.reply.is_closed() { continue; }
 						if rpc_window.elapsed() >= Duration::from_secs(1) { rpc_window = std::time::Instant::now(); rpc_remaining = 16; }
-						let response = if rpc_remaining == 0 {
+						let response = if stopping {
+							crate::rpc::Response::error("UNAVAILABLE", "Node is stopping; query status or retry the identical signed request after restart.")
+						} else if rpc_remaining == 0 {
 							crate::rpc::Response::error("RATE_LIMITED", "Retry after one second using the identical signed request.")
 						} else {
 							rpc_remaining -= 1;
@@ -360,7 +379,7 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 					}
 					continue;
 				},
-				_ = gossip_tick.tick() => {
+				_ = gossip_tick.tick(), if !stopping => {
 					ensure!(!rpc_server.as_ref().is_some_and(|s| s.is_finished()), "RPC listener stopped");
 					if let Some((key, payment)) = pending.next_gossip(gossip_cursor) {
 						// A fresh stream ID permits retry after peers connect or previously reject it.
@@ -377,7 +396,24 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 					}
 					continue;
 				},
-				signal = &mut shutdown => { signal?; return Ok(()); },
+				signal = &mut shutdown, if !stopping => {
+					signal?;
+					stopping = true;
+					stop_deadline = tokio::time::Instant::now() + Duration::from_secs(8);
+					// Parent shutdown kills children immediately. Finish consensus first while
+					// keeping its host replies and WAL available through the current handler.
+					consensus_actor.unlink(handle.actor.get_cell());
+					consensus_actor.stop(Some("operator shutdown".into()));
+					continue;
+				},
+				_ = tokio::time::sleep_until(stop_deadline), if stopping => return Err(eyre!("consensus did not finish controlled shutdown; recovery checks remain required")),
+				_ = consensus_actor.wait(None), if stopping => {
+					let (reply, flushed) = tokio::sync::oneshot::channel();
+					wal_actor.send_message(malachite_runtime::wal::Msg::<Context>::Flush(reply.into())).map_err(|_| eyre!("WAL unavailable at shutdown"))?;
+					tokio::time::timeout(Duration::from_secs(2), flushed).await???;
+					println!("STOPPED height={}", store.ledger()?.height());
+					return Ok(());
+				},
 				_ = &mut handle.handle => return Err(eyre!("consensus engine stopped")),
 				msg = channels.consensus.recv() => msg.ok_or_else(|| eyre!("consensus channel closed"))?,
 			};
@@ -408,6 +444,7 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 					let _ = reply_value.send(values);
 				},
 				AppMsg::GetValue { height, round, reply, .. } => {
+					if stopping { continue; }
 					ensure!(height.0 == store.ledger()?.height() + 1, "proposal height mismatch");
 					let cached = journal
 						.parts(height, round)?
@@ -487,6 +524,7 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 					address: proposer,
 					value_id,
 				} => {
+					if stopping { continue; }
 					let descriptor = Proposal {
 						height,
 						round,
@@ -576,6 +614,7 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 		}
 	}
 	.await;
+	consensus_actor.stop(None);
 	handle.actor.stop(None);
 	// The handle can already have been consumed by select when the engine stopped.
 	if !handle.handle.is_finished() {

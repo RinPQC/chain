@@ -288,7 +288,11 @@ fn stop_one(nodes: &mut Running, index: usize) {
 	let until = Instant::now() + Duration::from_secs(10);
 	loop {
 		if let Some(status) = child.try_wait().unwrap() {
-			assert!(status.success(), "node {index} failed planned shutdown: {status}");
+			assert!(
+				status.success(),
+				"node {index} failed planned shutdown: {status}: {}",
+				fs::read_to_string(nodes.dir.join(format!("err{index}.log"))).unwrap()
+			);
 			break;
 		}
 		assert!(
