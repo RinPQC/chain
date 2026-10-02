@@ -25,6 +25,9 @@ publish = false
 rust-version = "1.93"
 version = "0.1.0"
 
+[features]
+fault-injection = []
+
 [dependencies]
 async-trait = "0.1"
 borsh = { version = "1", features = ["derive"] }

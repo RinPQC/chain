@@ -34,12 +34,12 @@ Startup checks stored chain history, journal identity, finality evidence, WAL se
 
 Immediate WAL replay remains enabled. A returning validator may participate at a historical next height while waiting for certified history; this is safe only under the preserved WAL/lock and signed-message history assumptions. There is no unauthenticated peer-tip threshold that can disable signing indefinitely.
 
-Do not delete, replace or copy a used validator's recovery files to make it start. The existing fail-closed window between journaling a signature and recording its engine WAL entry remains. Total rollback, lost signing history or concurrent use of copied keys cannot be repaired safely by downloading blocks. Preserve the files and stop that identity pending a separately validated recovery procedure.
+Do not delete, replace or copy a used validator's recovery files to make it start. The [WAL-first release barrier](signing-recovery.md) removes that write-order gap for newly produced signatures; only a valid missing journal mirror can be reconstructed from existing WAL. A directory already stranded by the old ordering remains rejected. Total rollback, lost signing history or concurrent use of copied keys cannot be repaired safely by downloading blocks. Preserve the files and stop that identity pending a separately validated recovery procedure.
 
 ## Verification
 
 `just check` covers bounded codec round trips and rejection, wrong-chain data, corrupt blocks, insufficient/duplicate/invalid signatures, invalid execution despite a quorum certificate, unavailable history, and the distinction between cached data, committed state and signing readiness. The subprocess suite uses SIGINT for planned stops and covers late joining, interruption and resumption from a partial history, independent validator downtime, identical committed history and balances, preservation of prior signatures and renewed participation required for quorum while peers remain online.
 
-An ungraceful stop in the signature-before-WAL window may refuse restart, as described above; planned-stop coverage does not promise automatic recovery from every process crash. Unit tests separately verify that an incomplete signing WAL fails closed.
+The dedicated `just recovery-check` suite injects exits at the new signing boundaries and during restart while requiring the recovered node for quorum. Unit tests separately verify that missing or inconsistent engine history still fails closed. These traces assume intact local files, not arbitrary storage failure.
 
 These tests do not establish a catch-up throughput target or complete Byzantine network-load resistance. Full replay and execution costs, retained-history growth and upstream actor buffering remain resource limits to measure in later devnet acceptance work.

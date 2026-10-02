@@ -239,11 +239,14 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 	let verifier = Verification { chain };
 	let validators = Validators::from_genesis(&config.genesis);
 	recover(&mut store, &journal, &verifier, &validators).await?;
-	journal.check_wal(
-		&dir.join("consensus.wal"),
-		store.ledger()?.height(),
-		config.validator.public_key(),
-	)?;
+	journal
+		.recover_wal(
+			&dir.join("consensus.wal"),
+			store.ledger()?,
+			&validators,
+			config.validator.public_key(),
+		)
+		.await?;
 	let mut metrics = crate::observability::Metrics::recovered(
 		store.ledger()?.height(),
 		recovery_started.elapsed(),
@@ -258,7 +261,9 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 	));
 	println!("SIGNING_READY next_height={}", next_height.load(std::sync::atomic::Ordering::SeqCst));
 	let address = Address(config.validator.public_key());
-	let signer: Arc<dyn Signer<Context>> = Arc::new(Signing {
+	let signer = Arc::new(Signing {
+		wal: Default::default(),
+		serial: Default::default(),
 		key: config.validator,
 		journal: journal.clone(),
 		verifier: verifier.clone(),
@@ -328,7 +333,7 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 		.with_default_consensus(ConsensusContext::new_validator(
 			address,
 			Box::new(verifier.clone()),
-			Box::new(signer.clone()),
+			Box::new(signer.clone() as Arc<dyn Signer<Context>>),
 		))
 		.with_default_request(RequestContext::new(32))
 		.build()
@@ -348,6 +353,39 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 		})
 		.cloned()
 		.ok_or_else(|| eyre!("WAL actor missing"))?;
+	let signing_wal = wal_actor.clone();
+	let wal_height = Arc::new(std::sync::atomic::AtomicU64::new(0));
+	let signing_height = wal_height.clone();
+	signer
+		.wal
+		.set(Box::new(move |msg| {
+			let actor = signing_wal.clone();
+			let expected = signing_height.clone();
+			Box::pin(async move {
+				use super::engine::app::{consensus::Input, types::SignedConsensusMsg};
+				let height = msg.height();
+				ensure!(
+					expected.load(std::sync::atomic::Ordering::SeqCst) == height.0,
+					"signing WAL height not ready"
+				);
+				let input = match msg {
+					SignedConsensusMsg::Vote(v) => Input::Vote(v),
+					SignedConsensusMsg::Proposal(p) => Input::Proposal(p),
+				};
+				let (reply, received) = tokio::sync::oneshot::channel();
+				actor
+					.send_message(malachite_runtime::wal::Msg::Append(height, input, reply.into()))
+					.map_err(|_| eyre!("signing WAL unavailable"))?;
+				tokio::time::timeout(Duration::from_secs(5), received).await???;
+				let (reply, received) = tokio::sync::oneshot::channel();
+				actor
+					.send_message(malachite_runtime::wal::Msg::<Context>::Flush(reply.into()))
+					.map_err(|_| eyre!("signing WAL unavailable"))?;
+				tokio::time::timeout(Duration::from_secs(5), received).await???;
+				Ok(())
+			})
+		}))
+		.map_err(|_| eyre!("signing WAL already connected"))?;
 	let mut stopping = false;
 	let mut stop_deadline = tokio::time::Instant::now();
 	let mut active_round = Round::ZERO;
@@ -419,6 +457,13 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 			};
 			match msg {
 				AppMsg::ConsensusReady { reply } => {
+					#[cfg(feature = "fault-injection")]
+					if std::env::var_os("RINPQC_FAULT_READY").is_some() {
+						let network = children.iter().find(|cell| {
+							cell.is_message_type_of::<malachite_runtime::network::Msg<Context>>() == Some(true)
+						}).cloned().ok_or_else(|| eyre!("test network actor missing"))?;
+						super::faults::startup_barrier(network.into()).await?;
+					}
 					let h = store
 						.ledger()?
 						.height()
@@ -430,6 +475,7 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 					));
 				},
 				AppMsg::StartedRound { height, round, proposer, reply_value, .. } => {
+					wal_height.store(height.0, std::sync::atomic::Ordering::SeqCst);
 					metrics.height = height.0;
 					metrics.round = round.as_i64();
 					metrics.proposer = proposer.to_string();
@@ -465,6 +511,7 @@ pub async fn run(config: NodeConfig, payments: Vec<SignedTransfer>) -> Result<()
 							address,
 							value: Value(block.block().header.id()),
 						};
+						journal.save_block(proposal.value, &block.block().encode()?)?;
 						let signed = signer.sign_proposal(proposal.clone()).await?;
 						let part = Part {
 							proposal,

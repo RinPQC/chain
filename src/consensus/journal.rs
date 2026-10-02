@@ -13,7 +13,7 @@ use crate::{crypto::Id, infrastructure::write_new};
 use eyre::{ensure, eyre, Result};
 use redb::{Database, Durability, ReadableDatabase, ReadableTable, TableDefinition};
 use std::{
-	collections::BTreeSet,
+	collections::{BTreeMap, BTreeSet},
 	fs::File,
 	path::Path,
 	sync::atomic::{AtomicBool, Ordering},
@@ -83,6 +83,26 @@ impl Journal {
 		}
 		result
 	}
+	pub fn poison(&self) {
+		self.healthy.store(false, Ordering::SeqCst);
+	}
+	/// Check before any WAL mutation. The signer serializes this with persistence.
+	pub fn check_signing_slot(&self, slot: &[u8], bytes: &[u8]) -> Result<bool> {
+		let result = (|| {
+			if let Some(old) = self.get(&[b"s".as_slice(), slot].concat())? {
+				ensure!(old == bytes, "refusing conflicting signature");
+				return Ok(true);
+			}
+			if let Some(last) = self.get(b"watermark")? {
+				ensure!(slot > last.as_slice(), "refusing regressed signing slot");
+			}
+			Ok(false)
+		})();
+		if result.is_err() {
+			self.poison();
+		}
+		result
+	}
 	pub fn signed(&self, slot: &[u8], bytes: &[u8]) -> Result<()> {
 		ensure!(self.healthy.load(Ordering::SeqCst), "consensus journal requires recovery");
 		let result = (|| -> Result<()> {
@@ -117,16 +137,18 @@ impl Journal {
 	pub fn save_block(&self, value: Value, block: &[u8]) -> Result<()> {
 		self.put_once(&[b"b".as_slice(), &value.0].concat(), block)
 	}
-	pub fn save_part(&self, part: &Part) -> Result<()> {
-		self.save_block(part.proposal.value, &part.block)?;
-		let key = [
+	fn part_key(part: &Part) -> Result<Vec<u8>> {
+		Ok([
 			b"p".as_slice(),
 			&part.proposal.height.0.to_be_bytes(),
 			&part.proposal.round.as_u32().ok_or_else(|| eyre!("nil round"))?.to_be_bytes(),
 			&crate::crypto::hash(b"RINPQC/PART-DESCRIPTOR/v1\0", &borsh::to_vec(&part.proposal)?),
 		]
-		.concat();
-		self.put_once(&key, &self.codec.encode(part)?)
+		.concat())
+	}
+	pub fn save_part(&self, part: &Part) -> Result<()> {
+		self.save_block(part.proposal.value, &part.block)?;
+		self.put_once(&Self::part_key(part)?, &self.codec.encode(part)?)
 	}
 	pub fn parts(
 		&self,
@@ -168,6 +190,86 @@ impl Journal {
 		)
 	}
 	pub fn check_wal(&self, path: &Path, committed: u64, validator: Id) -> Result<()> {
+		self.wal_plan(path, committed, validator, false)?;
+		Ok(())
+	}
+	pub async fn recover_wal(
+		&self,
+		path: &Path,
+		ledger: &crate::application::execution::Ledger,
+		validators: &Validators,
+		validator: Id,
+	) -> Result<()> {
+		let policy = self.get(b"recovery_policy")?;
+		ensure!(
+			policy.as_deref().is_none_or(|v| v == b"wal-first-v1"),
+			"unknown signing recovery policy"
+		);
+		let missing = self.wal_plan(path, ledger.height(), validator, policy.is_some())?;
+		// Validate and reconstruct local proposal parts before applying any recovery writes.
+		let mut parts = Vec::new();
+		let mut log = wal::Log::open(path)?;
+		for entry in log_entries::<Context, _>(&mut log, &self.codec)? {
+			if let Input::Proposal(p) = entry? {
+				if p.message.address.0 == validator && p.message.height.0 > ledger.height() {
+					let block = self
+						.block(p.message.value)?
+						.ok_or_else(|| eyre!("missing durable local proposal payload"))?;
+					let part = Part { proposal: p.message, block, signature: p.signature };
+					ensure!(
+						super::node::valid_part(
+							&part,
+							ledger,
+							validators,
+							&super::signing::Verification { chain: self.codec.chain }
+						)
+						.await,
+						"invalid durable local proposal"
+					);
+					if let Some(old) = self.get(&Self::part_key(&part)?)? {
+						ensure!(
+							old == self.codec.encode(&part)?,
+							"conflicting durable local proposal part"
+						);
+					}
+					parts.push(part);
+				}
+			}
+		}
+		drop(log);
+		for (slot, bytes) in missing {
+			self.signed(&slot, &bytes)?;
+			#[cfg(feature = "fault-injection")]
+			super::faults::checkpoint(
+				"recovered_entry",
+				&self.codec.decode(bytes.into())?,
+				&self.codec,
+			);
+		}
+		for part in parts {
+			self.save_part(&part)?;
+			#[cfg(feature = "fault-injection")]
+			super::faults::checkpoint(
+				"recovered_part",
+				&SignedConsensusMsg::Proposal(super::engine::app::types::core::SignedMessage::new(
+					part.proposal,
+					part.signature,
+				)),
+				&self.codec,
+			);
+		}
+		self.check_wal(path, ledger.height(), validator)?;
+		// Legacy directories must pass strict reconciliation before adopting the new order.
+		self.put_once(b"recovery_policy", b"wal-first-v1")?;
+		Ok(())
+	}
+	fn wal_plan(
+		&self,
+		path: &Path,
+		committed: u64,
+		validator: Id,
+		repair: bool,
+	) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
 		ensure!(path.is_file(), "missing consensus WAL; refusing to sign");
 		let mut log = wal::Log::open(path)?;
 		ensure!(
@@ -177,6 +279,7 @@ impl Journal {
 			"WAL/application height mismatch"
 		);
 		let mut recorded = BTreeSet::new();
+		let sequence = log.sequence();
 		for entry in log_entries::<Context, _>(&mut log, &self.codec)? {
 			let msg = match entry? {
 				Input::Vote(v) => Some(SignedConsensusMsg::Vote(v)),
@@ -188,6 +291,13 @@ impl Journal {
 					SignedConsensusMsg::Vote(v) => v.message.address.0,
 					SignedConsensusMsg::Proposal(p) => p.message.address.0,
 				};
+				if address == validator {
+					ensure!(msg.height().0 == sequence, "signed WAL height mismatch");
+					ensure!(
+						super::signing::valid_signed(&msg, &self.codec.chain, &validator),
+						"invalid local WAL signature"
+					);
+				}
 				if address == validator && msg.height().0 > committed {
 					recorded.insert(self.codec.encode(&msg)?.to_vec());
 				}
@@ -201,6 +311,10 @@ impl Journal {
 			let (key, value) = row?;
 			let msg: SignedConsensusMsg<Context> =
 				self.codec.decode(value.value().to_vec().into())?;
+			ensure!(
+				super::signing::valid_signed(&msg, &self.codec.chain, &validator),
+				"invalid signing journal signature"
+			);
 			let address = match &msg {
 				SignedConsensusMsg::Vote(v) => v.message.address.0,
 				SignedConsensusMsg::Proposal(p) => p.message.address.0,
@@ -234,11 +348,24 @@ impl Journal {
 				);
 			}
 		}
-		ensure!(journaled == recorded, "active WAL/signing journal mismatch");
+		ensure!(repair || journaled == recorded, "active WAL/signing journal mismatch");
 		ensure!(
 			table.get(b"watermark".as_slice())?.map(|v| v.value().to_vec()) == last_slot,
 			"invalid signing high watermark"
 		);
-		Ok(())
+		let mut missing = BTreeMap::new();
+		for bytes in recorded.difference(&journaled) {
+			let msg: SignedConsensusMsg<Context> = self.codec.decode(bytes.clone().into())?;
+			let slot = super::signing::signing_slot(&msg)?;
+			ensure!(
+				last_slot.as_ref().is_none_or(|last| &slot > last),
+				"WAL-only signature precedes signing watermark"
+			);
+			ensure!(
+				missing.insert(slot, bytes.clone()).is_none(),
+				"conflicting WAL-only signing slot"
+			);
+		}
+		Ok(missing)
 	}
 }
