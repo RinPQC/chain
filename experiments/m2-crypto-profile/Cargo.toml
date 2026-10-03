@@ -1,0 +1,12 @@
+[package]
+edition = "2021"
+license = "MIT"
+name = "rinpqc-m2-profile-probe"
+publish = false
+version = "0.0.0"
+
+[workspace]
+[dependencies]
+clatter = { version = "=1.1.0", default-features = false, features = ["use-chacha20poly1305", "use-rust-crypto-ml-kem", "use-sha"] }
+pq-signatures = { package = "qp-rusty-crystals-dilithium", version = "=4.1.1", default-features = false, features = ["ml-dsa-65", "ml-dsa-87"] }
+rand = "=0.8.8"

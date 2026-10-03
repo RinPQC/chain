@@ -91,6 +91,8 @@ Tests provide evidence about the implementation under specified conditions; they
 
 ## Milestone 2 — Post-quantum cryptography integration
 
+The proposed [M2 cryptographic profile](docs/decisions/0002-pq-cryptographic-profile.md) records dependency pins, licensing, coverage and compatibility evidence. It is subject to review; the running node remains on the classical M1 profile.
+
 ### Scope
 
 **Signature and identity integration**

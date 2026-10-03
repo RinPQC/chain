@@ -1,0 +1,532 @@
+{
+  "status": "proposed",
+  "observed_at": "2026-10-03",
+  "baseline_commit": "83aa5a5fb0c8615127f569d85c44d4d1cd8f9796",
+  "compiler": "Rust 1.93.0",
+  "target": "x86_64-unknown-linux-gnu",
+  "signature_archive": {
+    "version": "4.1.1",
+    "checksum": "789877c169226a35d2ea686bbd9d506becc693f7bb0ee91acc03f74491e80c0f",
+    "license": "GPL-3.0",
+    "source_revision": "224c99a85237d5c7082a62022f750b684b453468",
+    "runtime_dependency": "zeroize =1.8.2 with derive"
+  },
+  "probe": {
+    "result": "passed",
+    "claims": [
+      "ML-DSA-65 and ML-DSA-87 public API positive/negative checks",
+      "PQXX ML-KEM-768 / ChaChaPoly / SHA-512 primitive handshake and record tamper rejection"
+    ],
+    "not_established": [
+      "authenticated libp2p integration",
+      "downgrade resistance",
+      "protocol security proof",
+      "current-version independent audit",
+      "node PQ activation"
+    ]
+  },
+  "acvp": {
+    "result": "passed after restoring omitted SHAKE fixture files from the recorded source revision",
+    "groups": 6,
+    "vectors": 140,
+    "scope": "vendored internal-interface vectors, not independent certification"
+  },
+  "node_graph_probe": {
+    "result": "cargo check --locked passed",
+    "added": [
+      {
+        "name": "arrayvec",
+        "version": "0.7.8"
+      },
+      {
+        "name": "clatter",
+        "version": "1.1.0"
+      },
+      {
+        "name": "hybrid-array",
+        "version": "0.2.3"
+      },
+      {
+        "name": "keccak",
+        "version": "0.1.6"
+      },
+      {
+        "name": "kem",
+        "version": "0.3.0-pre.0"
+      },
+      {
+        "name": "ml-kem",
+        "version": "0.2.3"
+      },
+      {
+        "name": "qp-rusty-crystals-dilithium",
+        "version": "4.1.1"
+      },
+      {
+        "name": "sha3",
+        "version": "0.10.9"
+      },
+      {
+        "name": "syn",
+        "version": "1.0.109"
+      },
+      {
+        "name": "thiserror-impl-no-std",
+        "version": "2.0.2"
+      },
+      {
+        "name": "thiserror-no-std",
+        "version": "2.0.2"
+      },
+      {
+        "name": "zeroize",
+        "version": "1.8.2"
+      }
+    ],
+    "removed": [
+      {
+        "name": "fastrand",
+        "version": "2.5.0"
+      },
+      {
+        "name": "tempfile",
+        "version": "3.27.0"
+      },
+      {
+        "name": "zeroize",
+        "version": "1.9.0"
+      }
+    ],
+    "note": "Temporary dependent package started from M1 lockfile and inherited the existing three repository patches; no runtime adapter changed.",
+    "advisories": "cargo deny check advisories passed"
+  },
+  "direct_network_forks": {
+    "result": "failed dependency resolution",
+    "reason": "multihash 0.17.0 requires yanked core2 0.4.0",
+    "identity_revision": "b9a7f46426efa2cf9b2ba20b95851ca18f361c95",
+    "noise_revision": "901f09f30b32f910395270bba3a566191dc2f61f"
+  },
+  "audit": {
+    "last_reviewed_revision": "8bbe920dc5bfe88fa40028eb1ea9bae4e39a600c",
+    "date": "2025-12-15",
+    "scope": "Signature and HD-wallet software; excludes third-party dependencies and hardware attacks; not an audit of selected release or node"
+  },
+  "packages": [
+    {
+      "name": "aead",
+      "version": "0.5.2",
+      "checksum": "d122413f284cf2d62fb1b7db97e02edb8cda96d769b16e443a4f6195e35662b0",
+      "license": "MIT OR Apache-2.0",
+      "features": [
+        "rand_core"
+      ]
+    },
+    {
+      "name": "arrayvec",
+      "version": "0.7.8",
+      "checksum": "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56",
+      "license": "MIT OR Apache-2.0",
+      "features": [
+        "zeroize"
+      ]
+    },
+    {
+      "name": "block-buffer",
+      "version": "0.10.4",
+      "checksum": "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71",
+      "license": "MIT OR Apache-2.0",
+      "features": []
+    },
+    {
+      "name": "cfg-if",
+      "version": "1.0.5",
+      "checksum": "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600",
+      "license": "MIT OR Apache-2.0",
+      "features": []
+    },
+    {
+      "name": "chacha20",
+      "version": "0.9.1",
+      "checksum": "c3613f74bd2eac03dad61bd53dbe620703d4371614fe0bc3b9f04dd36fe4e818",
+      "license": "Apache-2.0 OR MIT",
+      "features": [
+        "zeroize"
+      ]
+    },
+    {
+      "name": "chacha20poly1305",
+      "version": "0.10.1",
+      "checksum": "10cd79432192d1c0f4e1a0fef9527696cc039165d729fb41b3f4f4f354c2dc35",
+      "license": "Apache-2.0 OR MIT",
+      "features": [
+        "rand_core"
+      ]
+    },
+    {
+      "name": "cipher",
+      "version": "0.4.4",
+      "checksum": "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad",
+      "license": "MIT OR Apache-2.0",
+      "features": [
+        "zeroize"
+      ]
+    },
+    {
+      "name": "clatter",
+      "version": "1.1.0",
+      "checksum": "58e0d6244d37bbab9ce2351c3ec3c871ae51f02597b6ee25b523bcd008025a13",
+      "license": "MIT",
+      "features": [
+        "chacha20poly1305",
+        "ml-kem",
+        "sha2",
+        "use-chacha20poly1305",
+        "use-rust-crypto-ml-kem",
+        "use-sha"
+      ]
+    },
+    {
+      "name": "cpufeatures",
+      "version": "0.2.17",
+      "checksum": "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280",
+      "license": "MIT OR Apache-2.0",
+      "features": []
+    },
+    {
+      "name": "crypto-common",
+      "version": "0.1.7",
+      "checksum": "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a",
+      "license": "MIT OR Apache-2.0",
+      "features": [
+        "rand_core"
+      ]
+    },
+    {
+      "name": "digest",
+      "version": "0.10.7",
+      "checksum": "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292",
+      "license": "MIT OR Apache-2.0",
+      "features": [
+        "block-buffer",
+        "core-api",
+        "default"
+      ]
+    },
+    {
+      "name": "displaydoc",
+      "version": "0.2.7",
+      "checksum": "c6232dd377dcc64799954cbd3a9bb882e9cdc1308ccd87b1c098f1fb2eaf82a8",
+      "license": "MIT OR Apache-2.0",
+      "features": []
+    },
+    {
+      "name": "generic-array",
+      "version": "0.14.7",
+      "checksum": "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a",
+      "license": "MIT",
+      "features": [
+        "more_lengths"
+      ]
+    },
+    {
+      "name": "getrandom",
+      "version": "0.2.17",
+      "checksum": "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0",
+      "license": "MIT OR Apache-2.0",
+      "features": [
+        "std"
+      ]
+    },
+    {
+      "name": "hybrid-array",
+      "version": "0.2.3",
+      "checksum": "f2d35805454dc9f8662a98d6d61886ffe26bd465f5960e0e55345c70d5c0d2a9",
+      "license": "MIT OR Apache-2.0",
+      "features": [
+        "extra-sizes"
+      ]
+    },
+    {
+      "name": "inout",
+      "version": "0.1.4",
+      "checksum": "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01",
+      "license": "MIT OR Apache-2.0",
+      "features": []
+    },
+    {
+      "name": "keccak",
+      "version": "0.1.6",
+      "checksum": "cb26cec98cce3a3d96cbb7bced3c4b16e3d13f27ec56dbd62cbc8f39cfb9d653",
+      "license": "Apache-2.0 OR MIT",
+      "features": []
+    },
+    {
+      "name": "kem",
+      "version": "0.3.0-pre.0",
+      "checksum": "2b8645470337db67b01a7f966decf7d0bafedbae74147d33e641c67a91df239f",
+      "license": "Apache-2.0 OR MIT",
+      "features": []
+    },
+    {
+      "name": "libc",
+      "version": "0.2.190",
+      "checksum": "ce5d3ddc6d3fa000eb1536d85e147bfe31aacaba692ed6a876f95cb7c855be78",
+      "license": "MIT OR Apache-2.0",
+      "features": []
+    },
+    {
+      "name": "ml-kem",
+      "version": "0.2.3",
+      "checksum": "8de49b3df74c35498c0232031bb7e85f9389f913e2796169c8ab47a53993a18f",
+      "license": "Apache-2.0 OR MIT",
+      "features": [
+        "zeroize"
+      ]
+    },
+    {
+      "name": "opaque-debug",
+      "version": "0.3.1",
+      "checksum": "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381",
+      "license": "MIT OR Apache-2.0",
+      "features": []
+    },
+    {
+      "name": "poly1305",
+      "version": "0.8.0",
+      "checksum": "8159bd90725d2df49889a078b54f4f79e87f1f8a8444194cdca81d38f5393abf",
+      "license": "Apache-2.0 OR MIT",
+      "features": []
+    },
+    {
+      "name": "ppv-lite86",
+      "version": "0.2.21",
+      "checksum": "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9",
+      "license": "MIT OR Apache-2.0",
+      "features": [
+        "simd",
+        "std"
+      ]
+    },
+    {
+      "name": "proc-macro2",
+      "version": "1.0.107",
+      "checksum": "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9",
+      "license": "MIT OR Apache-2.0",
+      "features": [
+        "default",
+        "proc-macro"
+      ]
+    },
+    {
+      "name": "qp-rusty-crystals-dilithium",
+      "version": "4.1.1",
+      "checksum": "789877c169226a35d2ea686bbd9d506becc693f7bb0ee91acc03f74491e80c0f",
+      "license": "GPL-3.0",
+      "features": [
+        "ml-dsa-65",
+        "ml-dsa-87"
+      ]
+    },
+    {
+      "name": "quote",
+      "version": "1.0.47",
+      "checksum": "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001",
+      "license": "MIT OR Apache-2.0",
+      "features": [
+        "default",
+        "proc-macro"
+      ]
+    },
+    {
+      "name": "rand",
+      "version": "0.8.8",
+      "checksum": "e058c7de0b26af77780c769414d6257830bb240f3c38477dbc2c16e5f54d6d4c",
+      "license": "MIT OR Apache-2.0",
+      "features": [
+        "alloc",
+        "default",
+        "getrandom",
+        "libc",
+        "rand_chacha",
+        "std",
+        "std_rng"
+      ]
+    },
+    {
+      "name": "rand_chacha",
+      "version": "0.3.1",
+      "checksum": "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88",
+      "license": "MIT OR Apache-2.0",
+      "features": [
+        "std"
+      ]
+    },
+    {
+      "name": "rand_core",
+      "version": "0.6.4",
+      "checksum": "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c",
+      "license": "MIT OR Apache-2.0",
+      "features": [
+        "alloc",
+        "getrandom",
+        "std"
+      ]
+    },
+    {
+      "name": "sha2",
+      "version": "0.10.9",
+      "checksum": "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283",
+      "license": "MIT OR Apache-2.0",
+      "features": []
+    },
+    {
+      "name": "sha3",
+      "version": "0.10.9",
+      "checksum": "77fd7028345d415a4034cf8777cd4f8ab1851274233b45f84e3d955502d93874",
+      "license": "MIT OR Apache-2.0",
+      "features": []
+    },
+    {
+      "name": "subtle",
+      "version": "2.6.1",
+      "checksum": "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292",
+      "license": "BSD-3-Clause",
+      "features": []
+    },
+    {
+      "name": "syn",
+      "version": "1.0.109",
+      "checksum": "72b64191b275b66ffe2469e8af2c1cfe3bafa67b529ead792a6d0160888b4237",
+      "license": "MIT OR Apache-2.0",
+      "features": [
+        "clone-impls",
+        "default",
+        "derive",
+        "parsing",
+        "printing",
+        "proc-macro",
+        "quote"
+      ]
+    },
+    {
+      "name": "syn",
+      "version": "2.0.119",
+      "checksum": "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297",
+      "license": "MIT OR Apache-2.0",
+      "features": [
+        "clone-impls",
+        "default",
+        "derive",
+        "extra-traits",
+        "full",
+        "parsing",
+        "printing",
+        "proc-macro",
+        "visit"
+      ]
+    },
+    {
+      "name": "syn",
+      "version": "3.0.6",
+      "checksum": "8593e8e72159ed2257d083c7a454a85cbf854f37a0966d8d483aff8c8a3ebcee",
+      "license": "MIT OR Apache-2.0",
+      "features": [
+        "clone-impls",
+        "default",
+        "derive",
+        "parsing",
+        "printing",
+        "proc-macro"
+      ]
+    },
+    {
+      "name": "thiserror-impl-no-std",
+      "version": "2.0.2",
+      "checksum": "58e6318948b519ba6dc2b442a6d0b904ebfb8d411a3ad3e07843615a72249758",
+      "license": "MIT OR Apache-2.0",
+      "features": []
+    },
+    {
+      "name": "thiserror-no-std",
+      "version": "2.0.2",
+      "checksum": "a3ad459d94dd517257cc96add8a43190ee620011bb6e6cdc82dafd97dfafafea",
+      "license": "MIT OR Apache-2.0",
+      "features": []
+    },
+    {
+      "name": "typenum",
+      "version": "1.20.1",
+      "checksum": "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20",
+      "license": "MIT OR Apache-2.0",
+      "features": [
+        "const-generics"
+      ]
+    },
+    {
+      "name": "unicode-ident",
+      "version": "1.0.26",
+      "checksum": "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954",
+      "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
+      "features": []
+    },
+    {
+      "name": "universal-hash",
+      "version": "0.5.1",
+      "checksum": "fc1de2c688dc15305988b563c3854064043356019f97a4b46276fe734c4f07ea",
+      "license": "MIT OR Apache-2.0",
+      "features": []
+    },
+    {
+      "name": "version_check",
+      "version": "0.9.5",
+      "checksum": "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a",
+      "license": "MIT/Apache-2.0",
+      "features": []
+    },
+    {
+      "name": "wasi",
+      "version": "0.11.1+wasi-snapshot-preview1",
+      "checksum": "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b",
+      "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "features": []
+    },
+    {
+      "name": "zerocopy",
+      "version": "0.8.59",
+      "checksum": "6df92bf3d9227be3d53173901ddbffac2babc27ae50f397776ffd6dc33f800cb",
+      "license": "BSD-2-Clause OR Apache-2.0 OR MIT",
+      "features": [
+        "simd"
+      ]
+    },
+    {
+      "name": "zerocopy-derive",
+      "version": "0.8.59",
+      "checksum": "ac4f328cf2f05d084e496c3e9c3f33ed0a183656a16e1fcec4d464d8373aec82",
+      "license": "BSD-2-Clause OR Apache-2.0 OR MIT",
+      "features": []
+    },
+    {
+      "name": "zeroize",
+      "version": "1.8.2",
+      "checksum": "b97154e67e32c85465826e8bcc1c59429aaaf107c1e4a9e53c8d8ccd5eff88d0",
+      "license": "Apache-2.0 OR MIT",
+      "features": [
+        "derive",
+        "zeroize_derive"
+      ]
+    },
+    {
+      "name": "zeroize_derive",
+      "version": "1.5.0",
+      "checksum": "3c50655cbb0fe3fc43170059e702f1ce5e19b84cec58dc87b037a09935c2f328",
+      "license": "Apache-2.0 OR MIT",
+      "features": []
+    }
+  ],
+  "advisories": {
+    "scope": "standalone locked primitive graph",
+    "result": "cargo deny check advisories passed",
+    "note": "Known-advisory lookup only, not a license check or security audit."
+  }
+}
