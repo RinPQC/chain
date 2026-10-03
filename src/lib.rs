@@ -16,3 +16,6 @@ pub mod rpc;
 pub mod payment_cli;
 
 pub mod observability;
+
+/// Explicit M2 wire/storage formats, pending runtime adapter integration.
+pub mod m2;

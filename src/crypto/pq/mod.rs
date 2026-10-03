@@ -130,6 +130,9 @@ pub struct PublicKey {
 	role: KeyRole,
 }
 impl PublicKey {
+	pub fn role(&self) -> KeyRole {
+		self.role
+	}
 	pub fn from_bytes(suite: u16, role: KeyRole, bytes: &[u8]) -> Result<Self> {
 		if suite != SUITE {
 			return Err(Error::Suite);
