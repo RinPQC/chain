@@ -45,6 +45,7 @@ malachite-signing.workspace = true
 malachite-sync.workspace = true
 malachite-types.workspace = true
 malachitebft-app-channel.workspace = true
+pq-signatures = { package = "qp-rusty-crystals-dilithium", version = "=4.1.1", default-features = false, features = ["ml-dsa-87"] }
 rand_core = { version = "0.6.4", features = ["getrandom"] }
 redb = "=4.3.0"
 serde = { version = "1", features = ["derive"] }

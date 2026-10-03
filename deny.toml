@@ -31,3 +31,9 @@ unknown-registry = "deny"
 allow = ["MPL-2.0"]
 name = "attohttpc"
 version = "=0.30.1"
+
+# Approved M2 signature artifact; see docs/distribution.md.
+[[licenses.exceptions]]
+allow = ["GPL-3.0"]
+name = "qp-rusty-crystals-dilithium"
+version = "=4.1.1"

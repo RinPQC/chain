@@ -91,7 +91,7 @@ Tests provide evidence about the implementation under specified conditions; they
 
 ## Milestone 2 — Post-quantum cryptography integration
 
-The proposed [M2 cryptographic profile](docs/decisions/0002-pq-cryptographic-profile.md) records dependency pins, licensing, coverage and compatibility evidence. It is subject to review; the running node remains on the classical M1 profile.
+The accepted [M2 cryptographic profile](docs/decisions/0002-pq-cryptographic-profile.md) records dependency pins, licensing, coverage and compatibility evidence. Primitive implementation is underway; the running node remains on the classical M1 profile.
 
 ### Scope
 
@@ -166,3 +166,6 @@ Each milestone should be broken into bounded issues linked to its completion cri
 Architectural decisions remain explicit records in the research repository. Completing a PoC task does not silently approve production economics, security assumptions, or features outside this scope.
 
 The integration baseline is recorded in ADR 0001. [M1 payment, genesis and block semantics](docs/specs/m1-payment-semantics.md) specifies the application contract and deterministic vectors from issue #4. The acceptance matrix above records implementation evidence and remaining limits.
+
+M2 implementation reference: [signature primitives and key custody](docs/pq-primitives.md).
+Binary/image distribution: [dependency notices and corresponding source](docs/distribution.md).

@@ -38,6 +38,14 @@ jobs:
           cargo +nightly-2026-01-23 fmt --manifest-path experiments/m2-crypto-profile/Cargo.toml -- --check
           cargo clippy --locked --manifest-path experiments/m2-crypto-profile/Cargo.toml --all-targets -- -D warnings
           cargo run --release --locked --manifest-path experiments/m2-crypto-profile/Cargo.toml 2>&1 | tee artifacts/native/m2-profile-probe.log
+      - name: Verify distributable source bundle
+        shell: bash
+        run: |
+          bash scripts/package-source.sh artifacts/native/rinpqc-source.tar.gz
+          bundle_check=$(mktemp -d)
+          tar -xzf artifacts/native/rinpqc-source.tar.gz -C "$bundle_check"
+          (cd "$bundle_check/source" && cargo metadata --frozen --format-version 1 > /dev/null)
+          rm -rf "$bundle_check"
       - name: Upload native evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

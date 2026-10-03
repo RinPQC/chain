@@ -1,6 +1,6 @@
 # ADR 0002: M2 cryptographic profile
 
-Status: proposed for review and owner-approved merge. Tracking: [#35](https://github.com/RinPQC/chain/issues/35), [M2 tracker](https://github.com/RinPQC/chain/issues/34). Date: 2026-10-03.
+Status: accepted by owner-approved merge of [#48](https://github.com/RinPQC/chain/pull/48). Tracking: [#35](https://github.com/RinPQC/chain/issues/35), [M2 tracker](https://github.com/RinPQC/chain/issues/34). Date: 2026-10-03.
 
 This proposal selects a concrete integration baseline. It does not activate PQ in the node. M1 remains classical until the dependent implementation tasks are merged. Acceptance of this ADR includes the dependency/distribution policy below; an unresolved objection keeps #35 open. No telemetry, explorer, ZK, permissionless membership, bridge or M1 history migration is included.
 

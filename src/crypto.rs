@@ -1,4 +1,6 @@
 //! Explicit M1 signing roles. No durable consensus signing is enabled here.
+pub mod pq;
+
 use crate::application::{SignedTransfer, Transfer, SUITE, VERSION};
 use curve25519_dalek::edwards::CompressedEdwardsY;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
