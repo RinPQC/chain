@@ -169,3 +169,5 @@ The integration baseline is recorded in ADR 0001. [M1 payment, genesis and block
 
 M2 implementation reference: [signature primitives and key custody](docs/pq-primitives.md).
 Binary/image distribution: [dependency notices and corresponding source](docs/distribution.md).
+
+M2 format boundary: [canonical profile and fresh genesis](docs/m2-canonical-profile.md).

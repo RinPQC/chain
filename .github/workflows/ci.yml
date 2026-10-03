@@ -38,6 +38,10 @@ jobs:
           cargo +nightly-2026-01-23 fmt --manifest-path experiments/m2-crypto-profile/Cargo.toml -- --check
           cargo clippy --locked --manifest-path experiments/m2-crypto-profile/Cargo.toml --all-targets -- -D warnings
           cargo run --release --locked --manifest-path experiments/m2-crypto-profile/Cargo.toml 2>&1 | tee artifacts/native/m2-profile-probe.log
+      - name: Verify independent M2 encoding vectors
+        run: |
+          python3 scripts/m2-canonical-vectors.py
+          git diff --exit-code -- tests/fixtures/m2/canonical.json
       - name: Verify distributable source bundle
         shell: bash
         run: |
