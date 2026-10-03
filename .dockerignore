@@ -7,8 +7,16 @@
 !vendor/
 !vendor/**
 !scripts/
-!scripts/devnet/
-!scripts/devnet/container.py
+!scripts/**
+!tests/
+!tests/**
+!docs/
+!docs/**
+!licenses/
+!licenses/**
+!LICENSE
+!README.md
+!.dockerignore
 !Dockerfile
 
 **/*.key
