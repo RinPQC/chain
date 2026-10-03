@@ -32,6 +32,12 @@ jobs:
       - name: Verify signing crash recovery
         shell: bash
         run: just recovery-check 2>&1 | tee artifacts/native/signing-recovery.log
+      - name: Verify M2 crypto profile probe
+        shell: bash
+        run: |
+          cargo +nightly-2026-01-23 fmt --manifest-path experiments/m2-crypto-profile/Cargo.toml -- --check
+          cargo clippy --locked --manifest-path experiments/m2-crypto-profile/Cargo.toml --all-targets -- -D warnings
+          cargo run --release --locked --manifest-path experiments/m2-crypto-profile/Cargo.toml 2>&1 | tee artifacts/native/m2-profile-probe.log
       - name: Upload native evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
